@@ -1,9 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
-  runApp(const BookTrackerApp());
+  runApp(const BookListApp());
 }
 
 class Book {
@@ -38,14 +43,14 @@ class Book {
       );
 }
 
-class BookTrackerApp extends StatelessWidget {
-  const BookTrackerApp({super.key});
+class BookListApp extends StatelessWidget {
+  const BookListApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'বুক ট্র্যাকার',
+      title: 'Book List',
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF121212),
         colorScheme: const ColorScheme.dark(
@@ -111,6 +116,127 @@ class _BookListScreenState extends State<BookListScreen> {
     });
   }
 
+  Future<void> _exportBackup() async {
+    if (_books.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No book data to backup.')),
+      );
+      return;
+    }
+    try {
+      final jsonString = jsonEncode(_books.map((b) => b.toMap()).toList());
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/book_list_backup.json');
+      await file.writeAsString(jsonString);
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Book List Backup File (Save to Drive / Files)',
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Backup failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _importBackup() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        final content = await file.readAsString();
+        final List decoded = jsonDecode(content);
+
+        setState(() {
+          _books = decoded.map((item) => Book.fromMap(item)).toList();
+          _filteredBooks = _books;
+        });
+        await _saveBooks();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Data restored successfully!')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Restore failed: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _launchUrl(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open profile link.')),
+        );
+      }
+    }
+  }
+
+  void _showAboutDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: const Row(
+          children: [
+            Icon(Icons.info_outline, color: Colors.amber),
+            SizedBox(width: 8),
+            Text('About Book List'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Version: 1.0.0', style: TextStyle(color: Colors.grey)),
+            const SizedBox(height: 12),
+            const Text('Developed by:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            const Text('AHM', style: TextStyle(fontSize: 18, color: Colors.amber, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            InkWell(
+              onTap: () => _launchUrl('https://www.facebook.com/profile.php?id=61581691871822'),
+              child: const Row(
+                children: [
+                  Icon(Icons.link, color: Colors.blueAccent, size: 20),
+                  SizedBox(width: 6),
+                  Text(
+                    'Facebook Profile',
+                    style: TextStyle(
+                      color: Colors.blueAccent,
+                      decoration: TextDecoration.underline,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text('A simple, powerful, and dark-themed personal library and notes manager.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close', style: TextStyle(color: Colors.amber)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _addOrEditBook({Book? book}) {
     final titleController = TextEditingController(text: book?.title ?? '');
     final authorController = TextEditingController(text: book?.author ?? '');
@@ -136,29 +262,29 @@ class _BookListScreenState extends State<BookListScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                book == null ? '➕ নতুন বই যোগ করুন' : '✏️ বই সম্পাদনা',
+                book == null ? '➕ Add New Book' : '✏️ Edit Book',
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: titleController,
-                decoration: const InputDecoration(labelText: 'বইয়ের নাম *', border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: 'Book Title *', border: OutlineInputBorder()),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: authorController,
-                decoration: const InputDecoration(labelText: '👤 লেখকের নাম', border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: 'Author Name', border: OutlineInputBorder()),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: categoryController,
-                decoration: const InputDecoration(labelText: '📂 বইয়ের ধরন (যেমন: উপন্যাস, বিজ্ঞান)', border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: 'Category (e.g., Novel, Science)', border: OutlineInputBorder()),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: notesController,
                 maxLines: 3,
-                decoration: const InputDecoration(labelText: '📝 নোট / মন্তব্য', border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: 'Notes / Summary', border: OutlineInputBorder()),
               ),
               const SizedBox(height: 15),
               ElevatedButton(
@@ -191,7 +317,7 @@ class _BookListScreenState extends State<BookListScreen> {
                   _filterBooks();
                   Navigator.pop(ctx);
                 },
-                child: Text(book == null ? 'সংরক্ষণ করুন' : 'আপডেট করুন'),
+                child: Text(book == null ? 'Save' : 'Update'),
               ),
             ],
           ),
@@ -212,7 +338,60 @@ class _BookListScreenState extends State<BookListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('📚 আমার বইয়ের তালিকা'),
+        title: const Row(
+          children: [
+            Icon(Icons.menu_book, color: Colors.amber),
+            SizedBox(width: 8),
+            Text('Book List'),
+          ],
+        ),
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'export') {
+                _exportBackup();
+              } else if (value == 'import') {
+                _importBackup();
+              } else if (value == 'about') {
+                _showAboutDialog();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'export',
+                child: Row(
+                  children: [
+                    Icon(Icons.cloud_upload, color: Colors.amber),
+                    SizedBox(width: 8),
+                    Text('Backup (Save to Drive)'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'import',
+                child: Row(
+                  children: [
+                    Icon(Icons.cloud_download, color: Colors.blueAccent),
+                    SizedBox(width: 8),
+                    Text('Restore (Import Data)'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'about',
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.grey),
+                    SizedBox(width: 8),
+                    Text('About App'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -221,7 +400,7 @@ class _BookListScreenState extends State<BookListScreen> {
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
-                hintText: '🔎 বই, লেখক বা ক্যাটাগরি খুঁজুন...',
+                hintText: 'Search books, authors, or categories...',
                 prefixIcon: const Icon(Icons.search, color: Colors.amber),
                 filled: true,
                 fillColor: const Color(0xFF2C2C2C),
@@ -234,7 +413,7 @@ class _BookListScreenState extends State<BookListScreen> {
           ),
           Expanded(
             child: _filteredBooks.isEmpty
-                ? const Center(child: Text('কোনো বই পাওয়া যায়নি', style: TextStyle(color: Colors.grey)))
+                ? const Center(child: Text('No books found', style: TextStyle(color: Colors.grey)))
                 : ListView.builder(
                     itemCount: _filteredBooks.length,
                     itemBuilder: (ctx, index) {
@@ -248,7 +427,7 @@ class _BookListScreenState extends State<BookListScreen> {
                             child: Icon(Icons.book, color: Colors.black),
                           ),
                           title: Text(item.title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text('👤 ${item.author.isEmpty ? "অজানা লেখক" : item.author} | 📂 ${item.category.isEmpty ? "সাধারণ" : item.category}'),
+                          subtitle: Text('Author: ${item.author.isEmpty ? "Unknown" : item.author} | Category: ${item.category.isEmpty ? "General" : item.category}'),
                           children: [
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -256,7 +435,7 @@ class _BookListScreenState extends State<BookListScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   if (item.notes.isNotEmpty) ...[
-                                    const Text('📝 নোট:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amber)),
+                                    const Text('Notes:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amber)),
                                     const SizedBox(height: 4),
                                     Text(item.notes),
                                     const SizedBox(height: 10),
