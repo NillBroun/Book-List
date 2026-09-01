@@ -1,8 +1,8 @@
-name: Build Universal APK with Logo
+name: Build APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
@@ -10,44 +10,52 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Set up Java
         uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Setup Flutter
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          cache: true
 
-      - name: Create Custom Book Logo
+      - name: Build Universal APK with Book Icon
         run: |
-          mkdir -p android/app/src/main/res/drawable
-          cat << 'EOF' > android/app/src/main/res/drawable/ic_launcher_foreground.xml
+          mkdir temp_app
+          cd temp_app
+          flutter create --org=com.ahm book_list
+          cd book_list
+          cp ../../pubspec.yaml .
+          cp ../../lib/main.dart ./lib/main.dart
+          
+          # Custom Book Icon Setup
+          cat << 'EOF' > android/app/src/main/res/drawable/ic_book_icon.xml
           <vector xmlns:android="http://schemas.android.com/apk/res/android"
               android:width="108dp"
               android:height="108dp"
               android:viewportWidth="24"
               android:viewportHeight="24">
               <path
-                  android:fillColor="#FFD700"
+                  android:fillColor="#121212"
+                  android:pathData="M0,0h24v24H0z"/>
+              <path
+                  android:fillColor="#FFC107"
                   android:pathData="M18,2H6c-1.1,0 -2,0.9 -2,2v16c0,1.1 0.9,2 2,2h12c1.1,0 2,-0.9 2,-2V4c0,-1.1 -0.9,-2 -2,-2zM6,4h5v8l-2.5,-1.5L6,12V4z"/>
           </vector>
           EOF
+          
+          sed -i 's/android:icon="@mipmap\/ic_launcher"/android:icon="@drawable\/ic_book_icon"/g' android/app/src/main/AndroidManifest.xml
 
-      - name: Get Dependencies
-        run: flutter pub get
+          flutter pub get
+          flutter build apk --release
 
-      - name: Build Universal Release APK
-        run: flutter build apk --release
-
-      - name: Upload APK Artifact
+      - name: Upload Universal APK
         uses: actions/upload-artifact@v4
         with:
           name: Book-List-Universal-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: temp_app/book_list/build/app/outputs/flutter-apk/app-release.apk
