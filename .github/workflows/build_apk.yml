@@ -25,16 +25,22 @@ jobs:
           channel: 'stable'
 
       - name: Generate Android Project Files
-        run: flutter create . --platforms=android
+        run: flutter create . --platforms=android --org=com.ahm.booklist
+
+      - name: Configure Android Settings (App Name & SDK Version)
+        run: |
+          sed -i 's/android:label="[^"]*"/android:label="Book List"/g' android/app/src/main/AndroidManifest.xml
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle || true
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build APK
-        run: flutter build apk --release
+      - name: Build Optimized APK (ARM64)
+        run: flutter build apk --release --split-per-abi --obfuscate --split-debug-info=./debug-info
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: book-tracker-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: Book-List-APK
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
