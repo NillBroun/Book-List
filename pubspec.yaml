@@ -1,5 +1,5 @@
 name: book_list
-description: A dark themed Book List manager application.
+description: Book List Manager App by AHM
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -10,10 +10,6 @@ dependencies:
   flutter:
     sdk: flutter
   shared_preferences: ^2.2.2
-  file_picker: ^8.0.0
-  share_plus: ^9.0.0
-  path_provider: ^2.1.2
-  url_launcher: ^6.2.5
 
 flutter:
   uses-material-design: true
