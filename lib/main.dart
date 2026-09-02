@@ -203,57 +203,24 @@ class _BookListScreenState extends State<BookListScreen> {
     );
   }
 
-  void _showNoteDialog(Book book) {
-    final noteController = TextEditingController(text: book.notes);
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: Row(
-          children: [
-            const Icon(Icons.edit_note, color: Colors.amber),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Note: ${book.title}',
-                style: const TextStyle(fontSize: 16),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
+  void _openFullScreenNote(Book book) async {
+    final updatedNote = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => NoteEditorScreen(
+          bookTitle: book.title,
+          initialNote: book.notes,
         ),
-        content: TextField(
-          controller: noteController,
-          maxLines: 8,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Write your summary, thoughts, or favorite quotes here...',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
-            onPressed: () {
-              setState(() {
-                book.notes = noteController.text.trim();
-              });
-              _saveBooks();
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Note updated!')),
-              );
-            },
-            child: const Text('Save Note'),
-          ),
-        ],
       ),
     );
+
+    if (updatedNote != null) {
+      setState(() {
+        book.notes = updatedNote;
+      });
+      _saveBooks();
+      _filterBooks();
+    }
   }
 
   void _deleteBook(String id) {
@@ -530,29 +497,46 @@ class _BookListScreenState extends State<BookListScreen> {
                                     children: [
                                       const Row(
                                         children: [
-                                          Icon(Icons.notes, color: Colors.amber, size: 18),
+                                          Icon(Icons.sticky_note_2, color: Colors.amber, size: 20),
                                           SizedBox(width: 6),
-                                          Text('Reading Notes:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amber)),
+                                          Text('Book Notes', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amber, fontSize: 15)),
                                         ],
                                       ),
-                                      OutlinedButton.icon(
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: Colors.amber,
-                                          side: const BorderSide(color: Colors.amber),
-                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      ElevatedButton.icon(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.amber,
+                                          foregroundColor: Colors.black,
+                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                         ),
-                                        onPressed: () => _showNoteDialog(item),
-                                        icon: const Icon(Icons.edit, size: 14),
-                                        label: Text(item.notes.isEmpty ? 'Add Note' : 'Edit Note'),
+                                        onPressed: () => _openFullScreenNote(item),
+                                        icon: const Icon(Icons.edit, size: 16),
+                                        label: Text(item.notes.isEmpty ? 'Write Note' : 'Open Note'),
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    item.notes.isEmpty ? 'No notes written yet. Click "Add Note" to write thoughts or summary.' : item.notes,
-                                    style: TextStyle(
-                                      color: item.notes.isEmpty ? Colors.grey : Colors.white70,
-                                      fontStyle: item.notes.isEmpty ? FontStyle.italic : FontStyle.normal,
+                                  const SizedBox(height: 10),
+                                  InkWell(
+                                    onTap: () => _openFullScreenNote(item),
+                                    child: Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF1E1E1E),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: Colors.white12),
+                                      ),
+                                      child: Text(
+                                        item.notes.isEmpty
+                                            ? 'No notes yet. Tap here to write details...'
+                                            : item.notes,
+                                        maxLines: 4,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: item.notes.isEmpty ? Colors.grey : Colors.white,
+                                          fontStyle: item.notes.isEmpty ? FontStyle.italic : FontStyle.normal,
+                                          height: 1.4,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                   const Divider(height: 24, color: Colors.grey),
@@ -562,7 +546,7 @@ class _BookListScreenState extends State<BookListScreen> {
                                       TextButton.icon(
                                         onPressed: () => _showAddOrEditBookDialog(book: item),
                                         icon: const Icon(Icons.edit, color: Colors.blueAccent, size: 18),
-                                        label: const Text('Edit Info', style: TextStyle(color: Colors.blueAccent)),
+                                        label: const Text('Edit Book', style: TextStyle(color: Colors.blueAccent)),
                                       ),
                                       const SizedBox(width: 8),
                                       TextButton.icon(
@@ -587,6 +571,61 @@ class _BookListScreenState extends State<BookListScreen> {
         backgroundColor: Colors.amber,
         onPressed: () => _showAddOrEditBookDialog(),
         child: const Icon(Icons.add, color: Colors.black),
+      ),
+    );
+  }
+}
+
+class NoteEditorScreen extends StatefulWidget {
+  final String bookTitle;
+  final String initialNote;
+
+  const NoteEditorScreen({
+    super.key,
+    required this.bookTitle,
+    required this.initialNote,
+  });
+
+  @override
+  State<NoteEditorScreen> createState() => _NoteEditorScreenState();
+}
+
+class _NoteEditorScreenState extends State<NoteEditorScreen> {
+  late TextEditingController _noteController;
+
+  @override
+  void initState() {
+    super.initState();
+    _noteController = TextEditingController(text: widget.initialNote);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.bookTitle),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.check, color: Colors.amber, size: 28),
+            onPressed: () {
+              Navigator.pop(context, _noteController.text.trim());
+            },
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: TextField(
+          controller: _noteController,
+          maxLines: null,
+          expands: true,
+          autofocus: true,
+          style: const TextStyle(fontSize: 16, height: 1.5),
+          decoration: const InputDecoration(
+            hintText: 'Start typing your detailed notes, summaries, or thoughts here...',
+            border: InputBorder.none,
+          ),
+        ),
       ),
     );
   }
