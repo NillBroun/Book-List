@@ -19,7 +19,7 @@ class Book {
     required this.title,
     required this.author,
     required this.category,
-    required this.notes,
+    this.notes = '',
   });
 
   Map<String, dynamic> toMap() => {
@@ -112,6 +112,158 @@ class _BookListScreenState extends State<BookListScreen> {
     });
   }
 
+  void _showAddOrEditBookDialog({Book? book}) {
+    final titleController = TextEditingController(text: book?.title ?? '');
+    final authorController = TextEditingController(text: book?.author ?? '');
+    final categoryController = TextEditingController(text: book?.category ?? '');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 20,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              book == null ? '➕ Add New Book' : '✏️ Edit Book Info',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.amber),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: titleController,
+              decoration: const InputDecoration(
+                labelText: 'Book Title *',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.menu_book, color: Colors.amber),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: authorController,
+              decoration: const InputDecoration(
+                labelText: 'Author Name',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.person, color: Colors.amber),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: categoryController,
+              decoration: const InputDecoration(
+                labelText: 'Category (e.g. Novel, History, Science)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.category, color: Colors.amber),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber,
+                foregroundColor: Colors.black,
+                minimumSize: const Size.fromHeight(48),
+              ),
+              onPressed: () {
+                if (titleController.text.trim().isEmpty) return;
+
+                if (book == null) {
+                  final newBook = Book(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    title: titleController.text.trim(),
+                    author: authorController.text.trim(),
+                    category: categoryController.text.trim(),
+                  );
+                  setState(() => _books.add(newBook));
+                } else {
+                  setState(() {
+                    book.title = titleController.text.trim();
+                    book.author = authorController.text.trim();
+                    book.category = categoryController.text.trim();
+                  });
+                }
+                _saveBooks();
+                _filterBooks();
+                Navigator.pop(ctx);
+              },
+              child: Text(book == null ? 'Save Book' : 'Update Book', style: const TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showNoteDialog(Book book) {
+    final noteController = TextEditingController(text: book.notes);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: Row(
+          children: [
+            const Icon(Icons.edit_note, color: Colors.amber),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Note: ${book.title}',
+                style: const TextStyle(fontSize: 16),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        content: TextField(
+          controller: noteController,
+          maxLines: 8,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Write your summary, thoughts, or favorite quotes here...',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
+            onPressed: () {
+              setState(() {
+                book.notes = noteController.text.trim();
+              });
+              _saveBooks();
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Note updated!')),
+              );
+            },
+            child: const Text('Save Note'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteBook(String id) {
+    setState(() {
+      _books.removeWhere((b) => b.id == id);
+    });
+    _saveBooks();
+    _filterBooks();
+  }
+
   void _showBackupDialog() {
     final jsonString = jsonEncode(_books.map((b) => b.toMap()).toList());
     final textController = TextEditingController(text: jsonString);
@@ -125,7 +277,7 @@ class _BookListScreenState extends State<BookListScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Copy the backup code below and save it to Google Keep, Drive, or Notes:'),
+            const Text('Copy the backup code below and save it safely:'),
             const SizedBox(height: 10),
             TextField(
               controller: textController,
@@ -142,7 +294,7 @@ class _BookListScreenState extends State<BookListScreen> {
               Clipboard.setData(ClipboardData(text: jsonString));
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Backup code copied to clipboard!')),
+                const SnackBar(content: Text('Backup code copied!')),
               );
             },
             icon: const Icon(Icons.copy),
@@ -169,7 +321,7 @@ class _BookListScreenState extends State<BookListScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Paste your saved backup code here:'),
+            const Text('Paste your saved backup code:'),
             const SizedBox(height: 10),
             TextField(
               controller: textController,
@@ -238,7 +390,7 @@ class _BookListScreenState extends State<BookListScreen> {
               style: TextStyle(color: Colors.blueAccent, fontSize: 13),
             ),
             SizedBox(height: 12),
-            Text('A modern, dark-themed personal book library manager.'),
+            Text('Personal Book Library & Reading Notes Manager.'),
           ],
         ),
         actions: [
@@ -249,103 +401,6 @@ class _BookListScreenState extends State<BookListScreen> {
         ],
       ),
     );
-  }
-
-  void _addOrEditBook({Book? book}) {
-    final titleController = TextEditingController(text: book?.title ?? '');
-    final authorController = TextEditingController(text: book?.author ?? '');
-    final categoryController = TextEditingController(text: book?.category ?? '');
-    final notesController = TextEditingController(text: book?.notes ?? '');
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF1E1E1E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 20,
-          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                book == null ? '➕ Add New Book' : '✏️ Edit Book',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: titleController,
-                decoration: const InputDecoration(labelText: 'Book Title *', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: authorController,
-                decoration: const InputDecoration(labelText: 'Author Name', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: categoryController,
-                decoration: const InputDecoration(labelText: 'Category (e.g. Novel, Sci-Fi)', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: notesController,
-                maxLines: 3,
-                decoration: const InputDecoration(labelText: 'Notes / Summary', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 15),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.amber,
-                  foregroundColor: Colors.black,
-                  minimumSize: const Size.fromHeight(45),
-                ),
-                onPressed: () {
-                  if (titleController.text.trim().isEmpty) return;
-
-                  if (book == null) {
-                    final newBook = Book(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
-                      title: titleController.text.trim(),
-                      author: authorController.text.trim(),
-                      category: categoryController.text.trim(),
-                      notes: notesController.text.trim(),
-                    );
-                    setState(() => _books.add(newBook));
-                  } else {
-                    setState(() {
-                      book.title = titleController.text.trim();
-                      book.author = authorController.text.trim();
-                      book.category = categoryController.text.trim();
-                      book.notes = notesController.text.trim();
-                    });
-                  }
-                  _saveBooks();
-                  _filterBooks();
-                  Navigator.pop(ctx);
-                },
-                child: Text(book == null ? 'Save' : 'Update'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _deleteBook(String id) {
-    setState(() {
-      _books.removeWhere((b) => b.id == id);
-    });
-    _saveBooks();
-    _filterBooks();
   }
 
   @override
@@ -414,7 +469,7 @@ class _BookListScreenState extends State<BookListScreen> {
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
-                hintText: 'Search books, authors, or categories...',
+                hintText: 'Search books, authors, categories...',
                 prefixIcon: const Icon(Icons.search, color: Colors.amber),
                 filled: true,
                 fillColor: const Color(0xFF2C2C2C),
@@ -427,7 +482,10 @@ class _BookListScreenState extends State<BookListScreen> {
           ),
           Expanded(
             child: _filteredBooks.isEmpty
-                ? const Center(child: Text('No books found', style: TextStyle(color: Colors.grey)))
+                ? const Center(
+                    child: Text('No books added yet. Click + to add one!',
+                        style: TextStyle(color: Colors.grey)),
+                  )
                 : ListView.builder(
                     itemCount: _filteredBooks.length,
                     itemBuilder: (ctx, index) {
@@ -450,31 +508,67 @@ class _BookListScreenState extends State<BookListScreen> {
                           ),
                           title: Text(
                             '$serialNumber. ${item.title}',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                           ),
-                          subtitle: Text('Author: ${item.author.isEmpty ? "Unknown" : item.author} | Category: ${item.category.isEmpty ? "General" : item.category}'),
+                          subtitle: Text(
+                            'Author: ${item.author.isEmpty ? "Unknown" : item.author} • ${item.category.isEmpty ? "General" : item.category}',
+                            style: const TextStyle(color: Colors.grey),
+                          ),
                           children: [
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(16.0),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF252525),
+                                borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
+                              ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  if (item.notes.isNotEmpty) ...[
-                                    const Text('Notes:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amber)),
-                                    const SizedBox(height: 4),
-                                    Text(item.notes),
-                                    const SizedBox(height: 10),
-                                  ],
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Row(
+                                        children: [
+                                          Icon(Icons.notes, color: Colors.amber, size: 18),
+                                          SizedBox(width: 6),
+                                          Text('Reading Notes:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amber)),
+                                        ],
+                                      ),
+                                      OutlinedButton.icon(
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: Colors.amber,
+                                          side: const BorderSide(color: Colors.amber),
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                        ),
+                                        onPressed: () => _showNoteDialog(item),
+                                        icon: const Icon(Icons.edit, size: 14),
+                                        label: Text(item.notes.isEmpty ? 'Add Note' : 'Edit Note'),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    item.notes.isEmpty ? 'No notes written yet. Click "Add Note" to write thoughts or summary.' : item.notes,
+                                    style: TextStyle(
+                                      color: item.notes.isEmpty ? Colors.grey : Colors.white70,
+                                      fontStyle: item.notes.isEmpty ? FontStyle.italic : FontStyle.normal,
+                                    ),
+                                  ),
+                                  const Divider(height: 24, color: Colors.grey),
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
-                                      IconButton(
-                                        icon: const Icon(Icons.edit, color: Colors.blueAccent),
-                                        onPressed: () => _addOrEditBook(book: item),
+                                      TextButton.icon(
+                                        onPressed: () => _showAddOrEditBookDialog(book: item),
+                                        icon: const Icon(Icons.edit, color: Colors.blueAccent, size: 18),
+                                        label: const Text('Edit Info', style: TextStyle(color: Colors.blueAccent)),
                                       ),
-                                      IconButton(
-                                        icon: const Icon(Icons.delete, color: Colors.redAccent),
+                                      const SizedBox(width: 8),
+                                      TextButton.icon(
                                         onPressed: () => _deleteBook(item.id),
+                                        icon: const Icon(Icons.delete, color: Colors.redAccent, size: 18),
+                                        label: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
                                       ),
                                     ],
                                   )
@@ -491,7 +585,7 @@ class _BookListScreenState extends State<BookListScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.amber,
-        onPressed: () => _addOrEditBook(),
+        onPressed: () => _showAddOrEditBookDialog(),
         child: const Icon(Icons.add, color: Colors.black),
       ),
     );
