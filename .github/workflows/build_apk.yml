@@ -24,47 +24,55 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Generate Android Platform, Fix SDK & Build APK
+      - name: Setup Android & Build APK
         run: |
           # 1. Android প্রজেক্ট কাঠামো তৈরি
           flutter create . --platforms=android --org com.ahm.booknotes
 
-          # 2. সরাসরি Regex দিয়ে compileSdk, minSdk ও targetSdk ওভাররাইট
-          python3 -c "
-          import os, re
+          # 2. সম্পূর্ণ সঠিক ও এররমুক্ত build.gradle.kts সরাসরি রাইট করা
+          cat << 'EOF' > android/app/build.gradle.kts
+          plugins {
+              id("com.android.application")
+              id("kotlin-android")
+              id("dev.flutter.flutter-gradle-plugin")
+          }
 
-          targets = ['android/app/build.gradle.kts', 'android/app/build.gradle']
-          for p in targets:
-              if os.path.exists(p):
-                  with open(p, 'r') as f:
-                      c = f.read()
-                  
-                  # compileSdk -> 34
-                  c = re.sub(r'compileSdk(Version)?\s*=?\s*.*', 'compileSdk = 34', c)
-                  # minSdk -> 21
-                  c = re.sub(r'minSdk(Version)?\s*=?\s*.*', 'minSdk = 21', c)
-                  # targetSdk -> 34
-                  c = re.sub(r'targetSdk(Version)?\s*=?\s*.*', 'targetSdk = 34', c)
+          android {
+              namespace = "com.ahm.booknotes.book_list"
+              compileSdk = 34
+              ndkVersion = flutter.ndkVersion
 
-                  with open(p, 'w') as f:
-                      f.write(c)
-                  print(f'Configured SDK in {p}')
-          "
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
 
-          # 3. ব্যাকআপ সুবিধার জন্য Storage পারমিশন ও নাম BookNotes নিশ্চিত করা
-          python3 -c "
-          p = 'android/app/src/main/AndroidManifest.xml'
-          with open(p, 'r') as f:
-              m = f.read()
-          perms = '''
-              <uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" android:maxSdkVersion=\"32\" />
-              <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" android:maxSdkVersion=\"29\" />
-          '''
-          if 'READ_EXTERNAL_STORAGE' not in m:
-              m = m.replace('<application', perms + '\n    <application')
-          with open(p, 'w') as f:
-              f.write(m)
-          "
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+
+              defaultConfig {
+                  applicationId = "com.ahm.booknotes.book_list"
+                  minSdk = 21
+                  targetSdk = 34
+                  versionCode = flutter.versionCode
+                  versionName = flutter.versionName
+              }
+
+              buildTypes {
+                  release {
+                      signingConfig = signingConfigs.getByName("debug")
+                  }
+              }
+          }
+
+          flutter {
+              source = "../.."
+          }
+          EOF
+
+          # 3. ব্যাকআপ সুবিধার জন্য Storage পারমিশন ও ডিসপ্লে নাম নিশ্চিত করা
+          sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
 
           # 4. ডিপেন্ডেন্সি লোড
