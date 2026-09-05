@@ -26,33 +26,65 @@ jobs:
 
       - name: Create Clean Project & Build Universal APK
         run: |
-          # ১. ফ্রেশ ও সাপোর্টেড অ্যান্ড্রয়েড প্রজেক্ট তৈরি
+          # ১. ফ্রেশ অ্যান্ড্রয়েড প্রজেক্ট তৈরি
           cd ..
           flutter create -t app --org com.ahm booknotes_fresh
           cd booknotes_fresh
 
-          # ২. মূল সোর্স কোড ও আইকন কপি করা
+          # ২. সোর্স কোড ও আইকন কপি
           cp -r ../Book-List/lib/* ./lib/
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-          # ৩. সরাসরি ফাইলের ভেতর compileSdk 34 এবং minSdk 21 বসানো (Kotlin ও Groovy উভয়ের জন্য)
-          find android/ -name "build.gradle*" -exec sed -i 's/flutter.compileSdkVersion/34/g' {} +
-          find android/ -name "build.gradle*" -exec sed -i 's/flutter.minSdkVersion/21/g' {} +
-          find android/ -name "build.gradle*" -exec sed -i 's/flutter.targetSdkVersion/34/g' {} +
+          # ৩. অ্যাপ এবং সমস্ত প্লাগইনের জন্য গ্লোবালি minSdk 21 ও compileSdk 34 প্রয়োগ
+          python3 -c "
+          import os
 
-          # ৪. ডিসপ্লে নাম BookNotes ও ব্যাকআপ স্টোরেজ পারমিশন যুক্ত করা
+          # root build.gradle বা build.gradle.kts এ সাব-প্রজেক্ট রুল যোগ করা
+          root_gradle = 'android/build.gradle.kts' if os.path.exists('android/build.gradle.kts') else 'android/build.gradle'
+          rule = '''
+          allprojects {
+              afterEvaluate {
+                  if (project.hasProperty('android')) {
+                      project.extensions.findByName('android')?.apply {
+                          this as com.android.build.gradle.BaseExtension
+                          compileSdkVersion(34)
+                          defaultConfig {
+                              minSdkVersion(21)
+                              targetSdkVersion(34)
+                          }
+                      }
+                  }
+              }
+          }
+          '''
+          with open(root_gradle, 'a') as f:
+              f.write('\n' + rule)
+
+          # app/build.gradle.kts এ সরাসরি মান বসানো
+          for p in ['android/app/build.gradle.kts', 'android/app/build.gradle']:
+              if os.path.exists(p):
+                  with open(p, 'r') as f:
+                      c = f.read()
+                  c = c.replace('flutter.compileSdkVersion', '34')
+                  c = c.replace('flutter.minSdkVersion', '21')
+                  c = c.replace('flutter.targetSdkVersion', '34')
+                  with open(p, 'w') as f:
+                      f.write(c)
+          "
+
+          # ৪. ডিসপ্লে নাম ও স্টোরেজ পারমিশন
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
-          # ৫. ডিপেন্ডেন্সি আনা ও আইকন জেনারেট করা
+          # ৫. ডিপেন্ডেন্সি ও লঞ্চার আইকন প্রস্তুত করা
           flutter pub get
           dart run flutter_launcher_icons
 
-          # ৬. ইউনিভার্সাল রিলিজ APK কম্পাইল করা
+          # ৬. ইউনিভার্সাল রিলিজ APK তৈরি
           flutter build apk --release --target-platform android-arm,android-arm64,android-x64
 
-          # ৭. তৈরি হওয়া APK আর্টফ্যাক্ট ফোল্ডারে স্থানান্তর
+          # ৭. তৈরি হওয়া APK মূল ডিরেক্টরিতে পাঠানো
           mkdir -p ../Book-List/build/app/outputs/flutter-apk/
           cp build/app/outputs/flutter-apk/*.apk ../Book-List/build/app/outputs/flutter-apk/app-release.apk
 
