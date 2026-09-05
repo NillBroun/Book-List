@@ -24,39 +24,45 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Generate Android Platform, Fix SDK & Build APK
+      - name: Generate Android Skeleton, Fix Namespace, SDK & Build APK
         run: |
-          # 1. Android কাঠামো তৈরি (পুরোনো main.dart অক্ষত রেখে)
+          # 1. Android প্রজেক্ট কাঠামো তৈরি
           flutter create . --platforms=android --org com.ahm.booknotes
 
-          # 2. Kotlin (.kts) অথবা Groovy (.gradle) উভয় ফাইলের জন্যই minSdk ও compileSdk ফিক্স
+          # 2. পাইথন দিয়ে build.gradle বা build.gradle.kts এ namespace, minSdk এবং compileSdk ঠিক করা
           python3 -c "
           import os
 
-          # app লেভেল ফাইল চেক
-          targets = ['android/app/build.gradle.kts', 'android/app/build.gradle']
-          for p in targets:
+          files = ['android/app/build.gradle.kts', 'android/app/build.gradle']
+          for p in files:
               if os.path.exists(p):
                   with open(p, 'r') as f:
                       text = f.read()
+                  
+                  # Namespace যোগ করা (না থাকলে)
+                  if 'namespace' not in text:
+                      text = text.replace('android {', 'android {\n    namespace \"com.ahm.booknotes.book_list\"')
+                  
+                  # SDK ভার্সন ফিক্স
                   text = text.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 34')
                   text = text.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 34')
                   text = text.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 21')
                   text = text.replace('minSdk = flutter.minSdkVersion', 'minSdk = 21')
                   text = text.replace('targetSdkVersion flutter.targetSdkVersion', 'targetSdkVersion 34')
                   text = text.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 34')
+
                   with open(p, 'w') as f:
                       f.write(text)
-                  print(f'Successfully updated {p}')
+                  print(f'Configured successfully: {p}')
           "
 
-          # 3. ডিপেন্ডেন্সি লোড
+          # 3. পাব ডিপেন্ডেন্সি গেট
           flutter pub get
 
-          # 4. লঞ্চার আইকন তৈরি
+          # 4. লঞ্চার আইকন জেনারেট
           dart run flutter_launcher_icons
 
-          # 5. অ্যাপের ডিসপ্লে নাম BookNotes নির্ধারণ
+          # 5. অ্যাপের ডিসপ্লে নাম সেট
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
 
           # 6. ইউনিভার্সাল রিলিজ APK বিল্ড
