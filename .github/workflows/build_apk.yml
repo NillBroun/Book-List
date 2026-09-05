@@ -24,32 +24,38 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Generate Android Skeleton, Fix SDK & Build APK
+      - name: Build Universal Release APK
         run: |
-          # 1. Android কাঠামো তৈরি
+          # ১. অ্যান্ড্রয়েড কাঠামো তৈরি
           flutter create . --platforms=android --org com.ahm.booknotes
 
-          # 2. local.properties এবং gradle.properties উভয় স্থানেই SDK মান ইনজেক্ট করা
-          echo "flutter.minSdkVersion=21" >> android/local.properties
-          echo "flutter.compileSdkVersion=34" >> android/local.properties
-          echo "flutter.targetSdkVersion=34" >> android/local.properties
+          # ২. সমস্ত প্লাগইনের জন্য গ্লোবালি minSdk 21 ও compileSdk 34 ফোর্স করা
+          cat << 'EOF' >> android/app/build.gradle
+          subprojects {
+              afterEvaluate { project ->
+                  if (project.hasProperty('android')) {
+                      project.android {
+                          compileSdkVersion 34
+                          defaultConfig {
+                              minSdkVersion 21
+                              targetSdkVersion 34
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
 
-          echo "flutter.minSdkVersion=21" >> android/gradle.properties
-          echo "flutter.compileSdkVersion=34" >> android/gradle.properties
-          echo "flutter.targetSdkVersion=34" >> android/gradle.properties
-
-          # 3. নাম ও পারমিশন নিশ্চিত করা
+          # ৩. অ্যাপের নাম ও পারমিশন নিশ্চিত করা
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
-          # 4. ডিপেন্ডেন্সি লোড
+          # ৪. ডিপেন্ডেন্সি ও আইকন
           flutter pub get
-
-          # 5. লঞ্চার আইকন তৈরি
           dart run flutter_launcher_icons
 
-          # 6. ইউনিভার্সাল রিলিজ APK বিল্ড
-          flutter build apk --release --target-platform android-arm,android-arm64,android-x64
+          # ৫. রিলিজ বিল্ড (no-shrink সহ যাতে প্লাগইন কনফ্লিক্ট না করে)
+          flutter build apk --release --no-shrink --target-platform android-arm,android-arm64,android-x64
 
       - name: Upload Universal Release APK
         uses: actions/upload-artifact@v4
