@@ -24,14 +24,25 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Generate Android Skeleton, Fix MinSdk, Icons & Build Universal APK
+      - name: Generate Android Skeleton, Fix SDK Versions, Icons & Build APK
         run: |
-          # 1. Create Android skeleton
+          # 1. Create Android skeleton files
           flutter create . --platforms=android --org com.ahm.booknotes
 
-          # 2. Fix minSdkVersion to 21
-          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle || true
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle || true
+          # 2. Fix minSdk to 21 and compileSdk to 34 directly in build.gradle
+          python3 -c "
+          p = 'android/app/build.gradle'
+          with open(p, 'r') as f:
+              c = f.read()
+          c = c.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 34')
+          c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 34')
+          c = c.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 21')
+          c = c.replace('minSdk = flutter.minSdkVersion', 'minSdk = 21')
+          c = c.replace('targetSdkVersion flutter.targetSdkVersion', 'targetSdkVersion 34')
+          c = c.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 34')
+          with open(p, 'w') as f:
+              f.write(c)
+          "
 
           # 3. Get dependencies
           flutter pub get
