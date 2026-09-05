@@ -24,11 +24,20 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Generate App Launcher Icons & Build Universal APK
+      - name: Generate Android Skeleton, Icons & Build Universal APK
         run: |
+          # Recreate missing android platform files if not present
+          flutter create . --platforms=android --org com.ahm.booknotes
+
           flutter pub get
+
+          # Generate icons from app_icon2.png
           dart run flutter_launcher_icons
+
+          # Set Display Name to BookNotes
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
+
+          # Build Universal APK
           flutter build apk --release --target-platform android-arm,android-arm64,android-x64
 
       - name: Upload Universal Release APK
