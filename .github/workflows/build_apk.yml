@@ -24,36 +24,42 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Generate Android Skeleton, Fix SDK Versions, Icons & Build APK
+      - name: Generate Android Platform, Fix SDK & Build APK
         run: |
-          # 1. Create Android skeleton files
+          # 1. Android কাঠামো তৈরি (পুরোনো main.dart অক্ষত রেখে)
           flutter create . --platforms=android --org com.ahm.booknotes
 
-          # 2. Fix minSdk to 21 and compileSdk to 34 directly in build.gradle
+          # 2. Kotlin (.kts) অথবা Groovy (.gradle) উভয় ফাইলের জন্যই minSdk ও compileSdk ফিক্স
           python3 -c "
-          p = 'android/app/build.gradle'
-          with open(p, 'r') as f:
-              c = f.read()
-          c = c.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 34')
-          c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 34')
-          c = c.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 21')
-          c = c.replace('minSdk = flutter.minSdkVersion', 'minSdk = 21')
-          c = c.replace('targetSdkVersion flutter.targetSdkVersion', 'targetSdkVersion 34')
-          c = c.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 34')
-          with open(p, 'w') as f:
-              f.write(c)
+          import os
+
+          # app লেভেল ফাইল চেক
+          targets = ['android/app/build.gradle.kts', 'android/app/build.gradle']
+          for p in targets:
+              if os.path.exists(p):
+                  with open(p, 'r') as f:
+                      text = f.read()
+                  text = text.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 34')
+                  text = text.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 34')
+                  text = text.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 21')
+                  text = text.replace('minSdk = flutter.minSdkVersion', 'minSdk = 21')
+                  text = text.replace('targetSdkVersion flutter.targetSdkVersion', 'targetSdkVersion 34')
+                  text = text.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 34')
+                  with open(p, 'w') as f:
+                      f.write(text)
+                  print(f'Successfully updated {p}')
           "
 
-          # 3. Get dependencies
+          # 3. ডিপেন্ডেন্সি লোড
           flutter pub get
 
-          # 4. Generate app launcher icons
+          # 4. লঞ্চার আইকন তৈরি
           dart run flutter_launcher_icons
 
-          # 5. Set App Display Name
+          # 5. অ্যাপের ডিসপ্লে নাম BookNotes নির্ধারণ
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
 
-          # 6. Build Universal APK
+          # 6. ইউনিভার্সাল রিলিজ APK বিল্ড
           flutter build apk --release --target-platform android-arm,android-arm64,android-x64
 
       - name: Upload Universal Release APK
