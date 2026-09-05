@@ -24,56 +24,23 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Setup Android & Build APK
+      - name: Generate Android Skeleton, Fix SDK & Build APK
         run: |
-          # 1. Android প্রজেক্ট কাঠামো তৈরি
+          # 1. Android কাঠামো তৈরি
           flutter create . --platforms=android --org com.ahm.booknotes
 
-          # 2. সম্পূর্ণ সঠিক ও এররমুক্ত build.gradle.kts সরাসরি রাইট করা
-          cat << 'EOF' > android/app/build.gradle.kts
-          plugins {
-              id("com.android.application")
-              id("kotlin-android")
-              id("dev.flutter.flutter-gradle-plugin")
-          }
+          # 2. local.properties এবং gradle.properties উভয় স্থানেই SDK মান ইনজেক্ট করা
+          echo "flutter.minSdkVersion=21" >> android/local.properties
+          echo "flutter.compileSdkVersion=34" >> android/local.properties
+          echo "flutter.targetSdkVersion=34" >> android/local.properties
 
-          android {
-              namespace = "com.ahm.booknotes.book_list"
-              compileSdk = 34
-              ndkVersion = flutter.ndkVersion
+          echo "flutter.minSdkVersion=21" >> android/gradle.properties
+          echo "flutter.compileSdkVersion=34" >> android/gradle.properties
+          echo "flutter.targetSdkVersion=34" >> android/gradle.properties
 
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
-              }
-
-              kotlinOptions {
-                  jvmTarget = "17"
-              }
-
-              defaultConfig {
-                  applicationId = "com.ahm.booknotes.book_list"
-                  minSdk = 21
-                  targetSdk = 34
-                  versionCode = flutter.versionCode
-                  versionName = flutter.versionName
-              }
-
-              buildTypes {
-                  release {
-                      signingConfig = signingConfigs.getByName("debug")
-                  }
-              }
-          }
-
-          flutter {
-              source = "../.."
-          }
-          EOF
-
-          # 3. ব্যাকআপ সুবিধার জন্য Storage পারমিশন ও ডিসপ্লে নাম নিশ্চিত করা
-          sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
+          # 3. নাম ও পারমিশন নিশ্চিত করা
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
+          sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
           # 4. ডিপেন্ডেন্সি লোড
           flutter pub get
