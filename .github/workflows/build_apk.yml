@@ -26,17 +26,17 @@ jobs:
 
       - name: Create Clean Project & Build Universal APK
         run: |
-          # ১. ফ্রেশ ফ্লুটার প্রজেক্ট তৈরি
+          # ১. ফ্রেশ ও ক্লিন ফ্লুটার প্রজেক্ট তৈরি
           cd ..
           flutter create -t app --org com.ahm booknotes_fresh
           cd booknotes_fresh
 
-          # ২. আমাদের মূল ফাইলগুলো স্থানান্তর
+          # ২. আমাদের মূল ফাইলগুলো নতুন প্রজেক্টে কপি করা
           cp -r ../Book-List/lib/* ./lib/
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-          # ৩. গ্লোবালি minSdk 21 ও compileSdk 34 সেট করা
+          # ৩. গ্লোবালি অ্যান্ড্রয়েড SDK কনফিগারেশন সেট করা
           echo "flutter.minSdkVersion=21" >> android/local.properties
           echo "flutter.compileSdkVersion=34" >> android/local.properties
           echo "flutter.targetSdkVersion=34" >> android/local.properties
@@ -45,32 +45,21 @@ jobs:
           echo "flutter.compileSdkVersion=34" >> android/gradle.properties
           echo "flutter.targetSdkVersion=34" >> android/gradle.properties
 
-          # ৪. রিলিজ বিল্ডের সাইনিং কনফিগ নিশ্চিত করা (debug signing দিয়ে সাইন করা যাতে ইনস্টলেশন ঠিক থাকে)
-          python3 -c "
-          import os
-          target = 'android/app/build.gradle.kts' if os.path.exists('android/app/build.gradle.kts') else 'android/app/build.gradle'
-          with open(target, 'r') as f:
-              c = f.read()
-          if 'signingConfigs.debug' not in c and 'signingConfigs.getByName(\"debug\")' not in c:
-              c = c.replace('buildTypes {', 'buildTypes {\n        release {\n            signingConfig = signingConfigs.getByName(\"debug\")\n        }')
-              with open(target, 'w') as f:
-                  f.write(c)
-          "
-
-          # ৫. ডিসপ্লে নাম ও স্টোরেজ পারমিশন
+          # ৪. ডিসপ্লে নাম ও পারমিশন নিশ্চিত করা
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
-          # ৬. ডিপেন্ডেন্সি ও আইকন প্রস্তুত করা
+          # ৫. ডিপেন্ডেন্সি ও আইকন তৈরি
           flutter pub get
           dart run flutter_launcher_icons
 
-          # ৭. ইউনিভার্সাল রিলিজ APK বিল্ড (no-shrink সহ)
-          flutter build apk --release --no-shrink --target-platform android-arm,android-arm64,android-x64
+          # ৬. রিলিজ কিস্টোরের ঝামেলা এড়িয়ে সফল ইউনিভার্সাল APK তৈরি করা
+          # এটি সাইনিং সংক্রান্ত কোনো এরর ছাড়া সরাসরি ফোনে চলার মতো প্রস্তুত ইউনিভার্সাল APK তৈরি করে
+          flutter build apk --release --target-platform android-arm,android-arm64,android-x64 --no-tree-shake-icons
 
-          # ৮. আর্টফ্যাক্টের জন্য ফাইল ব্যাক করা
+          # ৭. তৈরি হওয়া APK ফাইল মূল রিপোজিটরিতে স্থানান্তর
           mkdir -p ../Book-List/build/app/outputs/flutter-apk/
-          cp build/app/outputs/flutter-apk/app-release.apk ../Book-List/build/app/outputs/flutter-apk/app-release.apk
+          cp build/app/outputs/flutter-apk/*.apk ../Book-List/build/app/outputs/flutter-apk/app-release.apk
 
       - name: Upload Universal Release APK
         uses: actions/upload-artifact@v4
