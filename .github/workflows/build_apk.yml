@@ -24,38 +24,41 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Build Universal Release APK
+      - name: Create Clean Project & Build Universal APK
         run: |
-          # ১. অ্যান্ড্রয়েড কাঠামো তৈরি
-          flutter create . --platforms=android --org com.ahm.booknotes
+          # ১. একটি সম্পূর্ণ ফ্রেশ ফ্লুটার প্রজেক্ট তৈরি করা
+          cd ..
+          flutter create -t app --org com.ahm booknotes_fresh
+          cd booknotes_fresh
 
-          # ২. সমস্ত প্লাগইনের জন্য গ্লোবালি minSdk 21 ও compileSdk 34 ফোর্স করা
-          cat << 'EOF' >> android/app/build.gradle
-          subprojects {
-              afterEvaluate { project ->
-                  if (project.hasProperty('android')) {
-                      project.android {
-                          compileSdkVersion 34
-                          defaultConfig {
-                              minSdkVersion 21
-                              targetSdkVersion 34
-                          }
-                      }
-                  }
-              }
-          }
-          EOF
+          # ২. আমাদের মূল ফাইলগুলো (lib, pubspec, icon) নতুন প্রজেক্টে স্থানান্তর
+          cp -r ../Book-List/lib/* ./lib/
+          cp ../Book-List/pubspec.yaml ./pubspec.yaml
+          cp ../Book-List/app_icon2.png ./app_icon2.png
 
-          # ৩. অ্যাপের নাম ও পারমিশন নিশ্চিত করা
+          # ৩. গ্লোবালি minSdk 21 এবং compileSdk 34 সেট করা
+          echo "flutter.minSdkVersion=21" >> android/local.properties
+          echo "flutter.compileSdkVersion=34" >> android/local.properties
+          echo "flutter.targetSdkVersion=34" >> android/local.properties
+
+          echo "flutter.minSdkVersion=21" >> android/gradle.properties
+          echo "flutter.compileSdkVersion=34" >> android/gradle.properties
+          echo "flutter.targetSdkVersion=34" >> android/gradle.properties
+
+          # ৪. পারমিশন ও নাম সেট করা
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
-          # ৪. ডিপেন্ডেন্সি ও আইকন
+          # ৫. ডিপেন্ডেন্সি ও আইকন প্রস্তুত করা
           flutter pub get
           dart run flutter_launcher_icons
 
-          # ৫. রিলিজ বিল্ড (no-shrink সহ যাতে প্লাগইন কনফ্লিক্ট না করে)
-          flutter build apk --release --no-shrink --target-platform android-arm,android-arm64,android-x64
+          # ৬. ইউনিভার্সাল রিলিজ APK বিল্ড
+          flutter build apk --release --target-platform android-arm,android-arm64,android-x64
+
+          # ৭. তৈরি হওয়া APK মূল ডিরেক্টরিতে ফিরিয়ে আনা
+          mkdir -p ../Book-List/build/app/outputs/flutter-apk/
+          cp build/app/outputs/flutter-apk/app-release.apk ../Book-List/build/app/outputs/flutter-apk/app-release.apk
 
       - name: Upload Universal Release APK
         uses: actions/upload-artifact@v4
