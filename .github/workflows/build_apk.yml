@@ -24,20 +24,25 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Generate Android Skeleton, Icons & Build Universal APK
+      - name: Generate Android Skeleton, Fix MinSdk, Icons & Build Universal APK
         run: |
-          # Recreate missing android platform files if not present
+          # 1. Create Android skeleton
           flutter create . --platforms=android --org com.ahm.booknotes
 
+          # 2. Fix minSdkVersion to 21
+          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle || true
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle || true
+
+          # 3. Get dependencies
           flutter pub get
 
-          # Generate icons from app_icon2.png
+          # 4. Generate app launcher icons
           dart run flutter_launcher_icons
 
-          # Set Display Name to BookNotes
+          # 5. Set App Display Name
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
 
-          # Build Universal APK
+          # 6. Build Universal APK
           flutter build apk --release --target-platform android-arm,android-arm64,android-x64
 
       - name: Upload Universal Release APK
