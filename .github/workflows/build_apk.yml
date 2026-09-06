@@ -33,7 +33,7 @@ jobs:
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-      - name: 5. Configure SDKs & Android Permissions
+      - name: 5. Configure SDKs & Subprojects Override
         run: |
           cd ../booknotes_fresh
 
@@ -51,6 +51,29 @@ jobs:
           with open(p, 'w') as f:
               f.write(c)
           "
+
+          # মূল build.gradle.kts-এ সব সাব-প্রজেক্টের (file_picker সহ) compileSdk সরাসরি 36 এ ওভাররাইড
+          cat << 'EOF' >> android/build.gradle.kts
+
+          subprojects {
+              afterEvaluate {
+                  if (project.hasProperty("android")) {
+                      val androidExt = project.extensions.findByName("android")
+                      if (androidExt != null) {
+                          try {
+                              val setCompileSdk = androidExt.javaClass.getMethod("setCompileSdkVersion", Int::class.javaPrimitiveType)
+                              setCompileSdk.invoke(androidExt, 36)
+                          } catch (e: Exception) {
+                              try {
+                                  val setCompileSdk2 = androidExt.javaClass.getMethod("compileSdk", Int::class.javaPrimitiveType)
+                                  setCompileSdk2.invoke(androidExt, 36)
+                              } catch (e2: Exception) {}
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
 
           # সাপ্রেস ফ্ল্যাগ
           echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
@@ -70,8 +93,8 @@ jobs:
         run: |
           cd ../booknotes_fresh/android
           chmod +x gradlew
-          # মেটাডেটা চেকিং টাস্ক সম্পূর্ণ বাইপাস করে সরাসরি রিলিজ বিল্ড করা
-          ./gradlew assembleRelease -x checkReleaseAarMetadata -x checkDebugAarMetadata --no-daemon
+          # কোনো টাস্ক স্কিপ না করে স্বাভাবিকভাবে সম্পূর্ণ বিল্ড সম্পন্ন করা
+          ./gradlew assembleRelease --no-daemon
 
           cd ..
           mkdir -p ../Book-List/build/app/outputs/flutter-apk/
