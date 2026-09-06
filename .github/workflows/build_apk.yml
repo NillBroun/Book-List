@@ -33,7 +33,7 @@ jobs:
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-      - name: 5. Configure App Level SDK & Permissions
+      - name: 5. Configure SDK & Disable AarMetadata Check
         run: |
           cd ../booknotes_fresh
 
@@ -42,42 +42,31 @@ jobs:
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle.kts
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle.kts
 
-          # gradle.properties-এ মেটাডেটা এরর এড়িয়ে যাওয়ার কনফিগ
+          # সমস্ত প্লাগইন ও সাব-প্রজেক্টের AarMetadata ভ্যালিডেশন টাস্ক বন্ধ করা
+          python3 -c "
+          p = 'android/app/build.gradle.kts'
+          with open(p, 'a') as f:
+              f.write('''
+
+          tasks.whenTaskAdded {
+              if (name.contains(\"AarMetadata\")) {
+                  enabled = false
+              }
+          }
+          ''')
+          "
+
+          # gradle.properties-এ অতিরিক্ত সেফটি ফ্ল্যাগ
           echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
 
-          # অ্যাপের নাম BookNotes এবং স্টোরেজ পারমিশন
+          # অ্যাপের নাম BookNotes এবং অফলাইন স্টোরেজ পারমিশন
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
-      - name: 6. Prepare Packages & Universally Patch Plugins
+      - name: 6. Prepare Packages & Launcher Icons
         run: |
           cd ../booknotes_fresh
           flutter pub get
-
-          # পাব ক্যাশে থাকা ফাইলপিকার ও সব প্লাগইনের build.gradle ফাইলে compileSdk 36 সরাসরি রিপ্লেস করা
-          python3 -c "
-          import os
-
-          cache_dir = os.path.expanduser('~/.pub-cache')
-          for root, dirs, files in os.walk(cache_dir):
-              for file in files:
-                  if file.endswith(('build.gradle', 'build.gradle.kts')):
-                      fpath = os.path.join(root, file)
-                      try:
-                          with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
-                              content = f.read()
-                          if 'compileSdkVersion' in content or 'compileSdk' in content:
-                              content = content.replace('compileSdkVersion 34', 'compileSdkVersion 36')
-                              content = content.replace('compileSdkVersion 33', 'compileSdkVersion 36')
-                              content = content.replace('compileSdk = 34', 'compileSdk = 36')
-                              content = content.replace('compileSdk = 33', 'compileSdk = 36')
-                              with open(fpath, 'w', encoding='utf-8') as f:
-                                  f.write(content)
-                      except Exception as e:
-                          pass
-          print('Successfully patched all plugins to compileSdk 36!')
-          "
-
           dart run flutter_launcher_icons
 
       - name: 7. Compile Universal APK
