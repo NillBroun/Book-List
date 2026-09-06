@@ -33,13 +33,13 @@ jobs:
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-      - name: 5. Configure SDK 36 and Android Permissions
+      - name: 5. Configure SDKs & Android Permissions
         run: |
           cd ../booknotes_fresh
 
-          # compileSdk 36, minSdk 21 ও targetSdk 34 সেট করা
+          # ফ্লুটারের ন্যূনতম নিয়ম মেনে minSdk 23, compileSdk 36 ও targetSdk 34 সেট করা
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle.kts
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle.kts
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle.kts
 
           # রিলিজ বিল্ডে সাইনিং ফিক্স
@@ -70,7 +70,7 @@ jobs:
         run: |
           cd ../booknotes_fresh/android
           chmod +x gradlew
-          # মেটাডেটা ভ্যালিডেশন বাদ দিয়ে সরাসরি রিলিজ APK কম্পাইল
+          # মেটাডেটা চেক বাদ দিয়ে সরাসরি রিলিজ APK কম্পাইল
           ./gradlew assembleRelease -x checkReleaseAarMetadata --no-daemon
 
           cd ..
