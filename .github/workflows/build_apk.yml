@@ -33,42 +33,23 @@ jobs:
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-      - name: 5. Fix SDK Directly in Gradle Files
+      - name: 5. Force SDK 21 and 34 on App Level
         run: |
           cd ../booknotes_fresh
 
-          # app লেভেলের build.gradle.kts এ সরাসরি মান বসানো
+          # app লেভেলের build.gradle.kts ফাইলে সরাসরি হার্ডকোড করা
           python3 -c "
-          import os
-
-          path = 'android/app/build.gradle.kts'
-          if os.path.exists(path):
-              with open(path, 'r') as f:
-                  text = f.read()
-              text = text.replace('minSdk = flutter.minSdkVersion', 'minSdk = 21')
-              text = text.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 34')
-              text = text.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 34')
-              with open(path, 'w') as f:
-                  f.write(text)
-              print('Updated build.gradle.kts successfully')
+          p = 'android/app/build.gradle.kts'
+          with open(p, 'r') as f:
+              c = f.read()
+          c = c.replace('minSdk = flutter.minSdkVersion', 'minSdk = 21')
+          c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 34')
+          c = c.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 34')
+          with open(p, 'w') as f:
+              f.write(c)
           "
 
-          # প্লাগইনগুলোর জন্য root settings.gradle.kts এ subprojects রুল যুক্ত করা
-          python3 -c "
-          import os
-
-          # root build.gradle.kts এ সাব-প্রজেক্ট ওভাররাইড
-          path = 'android/build.gradle.kts'
-          if os.path.exists(path):
-              with open(path, 'a') as f:
-                  f.write('''
-          subprojects {
-              project.evaluationDependsOn(\":app\")
-          }
-          ''')
-          "
-
-          # পারমিশন ও অ্যাপের নাম
+          # অ্যাপের নাম BookNotes এবং অফলাইন স্টোরেজ পারমিশন
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
@@ -81,8 +62,14 @@ jobs:
       - name: 7. Compile Universal APK
         run: |
           cd ../booknotes_fresh
+
+          # পাব ক্যাশে থাকা সব প্লাগইনের build.gradle ফাইলে minSdk 21 ফোর্স করা (যাতে কোনো প্লাগইন আটকাতে না পারে)
+          find /opt/hostedtoolcache/flutter -name "build.gradle" -exec sed -i 's/minSdkVersion 16/minSdkVersion 21/g' {} + 2>/dev/null || true
+          find ~/.pub-cache -name "build.gradle" -exec sed -i 's/minSdkVersion 16/minSdkVersion 21/g' {} + 2>/dev/null || true
+
+          # ইউনিভার্সাল রিলিজ বিল্ড
           flutter build apk --release --target-platform android-arm,android-arm64,android-x64
-          
+
           mkdir -p ../Book-List/build/app/outputs/flutter-apk/
           cp build/app/outputs/flutter-apk/*.apk ../Book-List/build/app/outputs/flutter-apk/app-release.apk
 
