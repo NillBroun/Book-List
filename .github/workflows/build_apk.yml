@@ -65,7 +65,7 @@ jobs:
           flutter pub get
           dart run flutter_launcher_icons
 
-          # ক্যাশে থাকা সব প্লাগইনের (file_picker সহ) build.gradle ফাইলে সরাসরি compileSdk 36 ইনজেক্ট করা
+          # ক্যাশে থাকা সব প্লাগইনের build.gradle ফাইলে সরাসরি compileSdk 36 ইনজেক্ট করা
           python3 -c "
           import glob
 
@@ -76,7 +76,6 @@ jobs:
                   modified = False
                   new_lines = []
                   for line in lines:
-                      # পুরনো compileSdk লাইন প্রতিস্থাপন
                       if 'compileSdkVersion' in line or ('compileSdk' in line and '=' in line):
                           if '.gradle.kts' in fpath:
                               new_lines.append('    compileSdk = 36\n')
