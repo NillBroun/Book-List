@@ -33,7 +33,7 @@ jobs:
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-      - name: Configure Main App
+      - name: Configure SDKs and Disable AAR Metadata Checks
         run: |
           cd ../booknotes_fresh
 
@@ -52,38 +52,28 @@ jobs:
 
           echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
 
+          cat << 'EOF' >> android/app/build.gradle.kts
+
+          gradle.projectsEvaluated {
+              allprojects {
+                  tasks.matching { it.name.contains("AarMetadata") }.configureEach {
+                      enabled = false
+                  }
+              }
+          }
+          EOF
+
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
-      - name: Patch Dependencies to SDK 36
+      - name: Prepare Packages & Build Assets
         run: |
           cd ../booknotes_fresh
           flutter pub get
           dart run flutter_launcher_icons
-
-          python3 -c "
-          import os
-
-          cache_dir = os.path.expanduser('~/.pub-cache/hosted/pub.dev')
-          for root, dirs, files in os.walk(cache_dir):
-              for file in files:
-                  if file == 'build.gradle':
-                      fpath = os.path.join(root, file)
-                      try:
-                          with open(fpath, 'r', encoding='utf-8') as f:
-                              content = f.read()
-                          if 'android {' in content:
-                              content = content.replace('android {', 'android {\n    compileSdkVersion 36', 1)
-                              with open(fpath, 'w', encoding='utf-8') as f:
-                                  f.write(content)
-                              print(f'Patched: {fpath}')
-                      except Exception:
-                          pass
-          "
-
           flutter build bundle
 
-      - name: Compile Universal APK
+      - name: Compile Universal APK via Gradle
         run: |
           cd ../booknotes_fresh/android
           chmod +x gradlew
