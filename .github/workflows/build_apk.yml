@@ -42,24 +42,48 @@ jobs:
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle.kts
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle.kts
 
+          # gradle.properties-এ মেটাডেটা এরর এড়িয়ে যাওয়ার কনফিগ
+          echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
+
           # অ্যাপের নাম BookNotes এবং স্টোরেজ পারমিশন
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
-      - name: 6. Prepare Packages, Patch file_picker & Launcher Icons
+      - name: 6. Prepare Packages & Universally Patch Plugins
         run: |
           cd ../booknotes_fresh
           flutter pub get
 
-          # file_picker প্লাগইনে সরাসরি compileSdk 36 প্যাচ করা
-          find ~/.pub-cache -name "build.gradle" -path "*/file_picker/*" -exec sed -i 's/compileSdkVersion 34/compileSdkVersion 36/g' {} +
-          find ~/.pub-cache -name "build.gradle" -path "*/file_picker/*" -exec sed -i 's/compileSdk 34/compileSdk 36/g' {} +
+          # পাব ক্যাশে থাকা ফাইলপিকার ও সব প্লাগইনের build.gradle ফাইলে compileSdk 36 সরাসরি রিপ্লেস করা
+          python3 -c "
+          import os
+
+          cache_dir = os.path.expanduser('~/.pub-cache')
+          for root, dirs, files in os.walk(cache_dir):
+              for file in files:
+                  if file.endswith(('build.gradle', 'build.gradle.kts')):
+                      fpath = os.path.join(root, file)
+                      try:
+                          with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
+                              content = f.read()
+                          if 'compileSdkVersion' in content or 'compileSdk' in content:
+                              content = content.replace('compileSdkVersion 34', 'compileSdkVersion 36')
+                              content = content.replace('compileSdkVersion 33', 'compileSdkVersion 36')
+                              content = content.replace('compileSdk = 34', 'compileSdk = 36')
+                              content = content.replace('compileSdk = 33', 'compileSdk = 36')
+                              with open(fpath, 'w', encoding='utf-8') as f:
+                                  f.write(content)
+                      except Exception as e:
+                          pass
+          print('Successfully patched all plugins to compileSdk 36!')
+          "
 
           dart run flutter_launcher_icons
 
       - name: 7. Compile Universal APK
         run: |
           cd ../booknotes_fresh
+          # ইউনিভার্সাল রিলিজ APK কম্পাইল
           flutter build apk --release --target-platform android-arm,android-arm64,android-x64 --no-tree-shake-icons
 
           mkdir -p ../Book-List/build/app/outputs/flutter-apk/
