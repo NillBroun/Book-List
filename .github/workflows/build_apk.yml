@@ -84,12 +84,11 @@ jobs:
             -x checkReleaseAarMetadata \
             --no-daemon
 
-          cd ..
-          mkdir -p ../Book-List/build/app/outputs/flutter-apk/
-          cp app/build/outputs/apk/release/*.apk ../Book-List/build/app/outputs/flutter-apk/app-release.apk
+          mkdir -p ../../Book-List/build_output/
+          find /home/runner/work/Book-List -name "*.apk" -exec cp {} ../../Book-List/build_output/app-release.apk \;
 
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
           name: BookNotes-Universal-Release-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build_output/app-release.apk
