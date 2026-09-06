@@ -33,28 +33,26 @@ jobs:
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-      - name: 5. Configure SDK & Android Settings
+      - name: 5. Configure SDK & Android Signing
         run: |
           cd ../booknotes_fresh
 
-          # মূল অ্যাপে compileSdk ও minSdk নিশ্চিত করা
+          # মূল অ্যাপে SDK ২১ এবং ৩৪ ফিক্স করা
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/g' android/app/build.gradle.kts
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle.kts
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle.kts
 
-          # সমস্ত ডিপেন্ডেন্সি প্লাগইনের জন্য root settings.gradle.kts এ গ্লোবাল SDK হুক যোগ করা
-          cat << 'EOF' >> android/app/build.gradle.kts
+          # রিলিজ বিল্ডকে ডিবাগ সাইনিং কনফিগারেশনে ম্যাপ করা (যাতে আনসাইনড এররে ক্র্যাশ না করে)
+          python3 -c "
+          p = 'android/app/build.gradle.kts'
+          with open(p, 'r') as f:
+              c = f.read()
+          c = c.replace('buildTypes {', 'buildTypes {\n        getByName(\"release\") {\n            signingConfig = signingConfigs.getByName(\"debug\")\n        }')
+          with open(p, 'w') as f:
+              f.write(c)
+          "
 
-          android {
-              configurations.all {
-                  resolutionStrategy {
-                      force("androidx.core:core-ktx:1.13.1")
-                  }
-              }
-          }
-          EOF
-
-          # অ্যাপের নাম BookNotes এবং অফলাইন স্টোরেজ পারমিশন
+          # অ্যাপের নাম BookNotes এবং স্টোরেজ পারমিশন
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
@@ -67,8 +65,8 @@ jobs:
       - name: 7. Compile Universal APK
         run: |
           cd ../booknotes_fresh
-          # রিলিজ মোডে বিল্ড ও বিস্তারিত স্ট্যাকট্রেস সক্রিয় রাখা
-          flutter build apk --release --target-platform android-arm,android-arm64,android-x64 -v
+          # ইউনিভার্সাল রিলিজ APK কম্পাইল
+          flutter build apk --release --target-platform android-arm,android-arm64,android-x64 --no-tree-shake-icons
 
           mkdir -p ../Book-List/build/app/outputs/flutter-apk/
           cp build/app/outputs/flutter-apk/*.apk ../Book-List/build/app/outputs/flutter-apk/app-release.apk
