@@ -33,16 +33,16 @@ jobs:
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-      - name: 5. Configure SDK 36 and Bypass AAR Checks
+      - name: 5. Configure SDK 36 and Android Permissions
         run: |
           cd ../booknotes_fresh
 
-          # মূল অ্যাপে compileSdk 36, minSdk 21 ও targetSdk 34 সেট করা
+          # compileSdk 36, minSdk 21 ও targetSdk 34 সেট করা
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle.kts
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle.kts
 
-          # রিলিজ বিল্ডে ডিবাগ কী অ্যাসাইন করা যাতে সাইনিং এরর না হয়
+          # রিলিজ বিল্ডে সাইনিং ফিক্স
           python3 -c "
           p = 'android/app/build.gradle.kts'
           with open(p, 'r') as f:
@@ -52,30 +52,30 @@ jobs:
               f.write(c)
           "
 
-          # gradle.properties ফাইলে গ্লোবাল সাপ্রেস ফ্ল্যাগ
-          cat << 'EOF' >> android/gradle.properties
-          android.suppressUnsupportedCompileSdk=36
-          android.dependencyResolutionTimeout=600000
-          EOF
+          # সেফটি ফ্ল্যাগ
+          echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
 
           # অ্যাপের নাম BookNotes এবং স্টোরেজ পারমিশন
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
-      - name: 6. Prepare Packages & Launcher Icons
+      - name: 6. Prepare Packages & Build Flutter Assets
         run: |
           cd ../booknotes_fresh
           flutter pub get
           dart run flutter_launcher_icons
+          flutter build bundle
 
-      - name: 7. Compile Universal APK (Excluding Blocking Metadata Checks)
+      - name: 7. Compile Universal APK via Gradle
         run: |
-          cd ../booknotes_fresh
-          # সরাসরি গ্রেডল আর্গুমেন্টে মেটাডেটা চেক টাস্কগুলো এক্সক্লুড (-x) করে এপিকে কম্পাইল
-          flutter build apk --release --target-platform android-arm,android-arm64,android-x64 --no-tree-shake-icons --extra-front-end-options="" -- --no-daemon -x checkReleaseAarMetadata
+          cd ../booknotes_fresh/android
+          chmod +x gradlew
+          # মেটাডেটা ভ্যালিডেশন বাদ দিয়ে সরাসরি রিলিজ APK কম্পাইল
+          ./gradlew assembleRelease -x checkReleaseAarMetadata --no-daemon
 
+          cd ..
           mkdir -p ../Book-List/build/app/outputs/flutter-apk/
-          cp build/app/outputs/flutter-apk/*.apk ../Book-List/build/app/outputs/flutter-apk/app-release.apk
+          cp app/build/outputs/apk/release/*.apk ../Book-List/build/app/outputs/flutter-apk/app-release.apk
 
       - name: 8. Upload Release APK
         uses: actions/upload-artifact@v4
