@@ -37,7 +37,7 @@ jobs:
         run: |
           cd ../booknotes_fresh
 
-          # মূল অ্যাপে minSdk 24, compileSdk 36 ও targetSdk 34
+          # মূল অ্যাপে minSdk 24, compileSdk 36 ও targetSdk 34 সেট করা
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/g' android/app/build.gradle.kts
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle.kts
@@ -59,16 +59,30 @@ jobs:
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
-      - name: 6. Prepare Packages & Direct Patch File Picker
+      - name: 6. Prepare Packages & Force Patch File Picker to SDK 36
         run: |
           cd ../booknotes_fresh
           flutter pub get
           dart run flutter_launcher_icons
 
-          # ক্যাশে থাকা file_picker এর build.gradle-এ সরাসরি compileSdk 36 করে দেওয়া
-          find /home/runner/.pub-cache/hosted/pub.dev/file_picker* -name "build.gradle" -exec sed -i 's/compileSdkVersion 34/compileSdkVersion 36/g' {} +
-          find /home/runner/.pub-cache/hosted/pub.dev/file_picker* -name "build.gradle" -exec sed -i 's/compileSdk = 34/compileSdk = 36/g' {} +
-          find /home/runner/.pub-cache/hosted/pub.dev/file_picker* -name "build.gradle.kts" -exec sed -i 's/compileSdk = 34/compileSdk = 36/g' {} +
+          # পাইথন দিয়ে pub-cache এর file_picker এর build.gradle সরাসরি 36 এ ওভাররাইট করা
+          python3 -c "
+          import glob, re
+
+          files = glob.glob('/home/runner/.pub-cache/hosted/pub.dev/file_picker*/**/build.gradle*', recursive=True)
+          for fpath in files:
+              with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
+                  content = f.read()
+              
+              # যে কোনো compileSdkVersion বা compileSdk কে 36 এ রূপান্তর
+              new_content = re.sub(r'compileSdkVersion\s+.*', 'compileSdkVersion 36', content)
+              new_content = re.sub(r'compileSdk\s*=\s*.*', 'compileSdk = 36', new_content)
+              
+              if new_content != content:
+                  with open(fpath, 'w', encoding='utf-8') as f:
+                      f.write(new_content)
+                  print(f'Patched: {fpath}')
+          "
 
           flutter build bundle
 
