@@ -33,7 +33,7 @@ jobs:
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-      - name: Configure SDKs and Disable AAR Metadata Checks
+      - name: Configure Main App
         run: |
           cd ../booknotes_fresh
 
@@ -52,17 +52,6 @@ jobs:
 
           echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
 
-          cat << 'EOF' >> android/app/build.gradle.kts
-
-          gradle.projectsEvaluated {
-              allprojects {
-                  tasks.matching { it.name.contains("AarMetadata") }.configureEach {
-                      enabled = false
-                  }
-              }
-          }
-          EOF
-
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
@@ -73,11 +62,17 @@ jobs:
           dart run flutter_launcher_icons
           flutter build bundle
 
-      - name: Compile Universal APK via Gradle
+      - name: Compile Universal APK
         run: |
-          cd ../booknotes_fresh/android
+          cd ../booknotes_fresh
+
+          # ক্র্যাশ এড়াতে মিসিং ডিরেক্টরি এবং ডামি মেটাডেটা ফাইল আগে থেকেই তৈরি করে রাখা
+          mkdir -p build/file_picker/intermediates/aar_metadata_check/release/checkReleaseAarMetadata
+          touch build/file_picker/intermediates/aar_metadata_check/release/checkReleaseAarMetadata/aar-metadata.properties
+
+          cd android
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease -x :file_picker:checkReleaseAarMetadata -x checkReleaseAarMetadata --no-daemon
 
           cd ..
           mkdir -p ../Book-List/build/app/outputs/flutter-apk/
