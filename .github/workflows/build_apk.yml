@@ -33,7 +33,7 @@ jobs:
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-      - name: 5. Force SDK 36 via Gradle Settings
+      - name: 5. Configure SDKs & Android Permissions
         run: |
           cd ../booknotes_fresh
 
@@ -52,30 +52,47 @@ jobs:
               f.write(c)
           "
 
-          # settings.gradle.kts এ হুক বসিয়ে file_picker সহ সব মডিউলের compileSdk 36 করা
-          cat << 'EOF' >> android/settings.gradle.kts
-
-          gradle.beforeProject {
-              plugins.withId("com.android.library") {
-                  extensions.findByType(com.android.build.api.dsl.LibraryExtension::class.java)?.apply {
-                      compileSdk = 36
-                  }
-              }
-          }
-          EOF
-
-          # সাপ্রেস প্রপার্টি
+          # সাপ্রেস ফ্ল্যাগ
           echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
 
-          # অ্যাপের নাম BookNotes এবং অফলাইন স্টোরেজ পারমিশন
+          # অ্যাপের নাম BookNotes এবং স্টোরেজ পারমিশন
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
-      - name: 6. Prepare Packages & Build Flutter Assets
+      - name: 6. Prepare Packages & Force Patch All Cached Plugins
         run: |
           cd ../booknotes_fresh
           flutter pub get
           dart run flutter_launcher_icons
+
+          # ক্যাশে থাকা সব প্লাগইনের (file_picker সহ) build.gradle ফাইলে সরাসরি compileSdk 36 ইনজেক্ট করা
+          python3 -c "
+          import glob
+
+          for fpath in glob.glob('/home/runner/.pub-cache/hosted/pub.dev/**/build.gradle*', recursive=True):
+              try:
+                  with open(fpath, 'r', encoding='utf-8') as f:
+                      lines = f.readlines()
+                  modified = False
+                  new_lines = []
+                  for line in lines:
+                      # পুরনো compileSdk লাইন প্রতিস্থাপন
+                      if 'compileSdkVersion' in line or ('compileSdk' in line and '=' in line):
+                          if '.gradle.kts' in fpath:
+                              new_lines.append('    compileSdk = 36\n')
+                          else:
+                              new_lines.append('    compileSdkVersion 36\n')
+                          modified = True
+                      else:
+                          new_lines.append(line)
+                  if modified:
+                      with open(fpath, 'w', encoding='utf-8') as f:
+                          f.writelines(new_lines)
+                      print(f'Successfully updated compileSdk in: {fpath}')
+              except Exception as e:
+                  pass
+          "
+
           flutter build bundle
 
       - name: 7. Compile Universal APK via Gradle
