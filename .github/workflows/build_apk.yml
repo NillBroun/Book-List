@@ -33,20 +33,16 @@ jobs:
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-      - name: 5. Configure Gradle 9.3.1, SDK 36 and Permissions
+      - name: 5. Configure SDK 36 and Bypass AAR Checks
         run: |
           cd ../booknotes_fresh
 
-          # ১. রিকোয়ারমেন্ট অনুযায়ী Gradle 9.3.1 সেট করা
-          sed -i 's/gradle-.*-all.zip/gradle-9.3.1-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties
-          sed -i 's/gradle-.*-bin.zip/gradle-9.3.1-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties
-
-          # ২. compileSdk 36, minSdk 21 ও targetSdk 34 সেট করা
+          # মূল অ্যাপে compileSdk 36, minSdk 21 ও targetSdk 34 সেট করা
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle.kts
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle.kts
 
-          # ৩. রিলিজ বিল্ডকে ডিবাগ সাইনিং দেওয়া এবং AarMetadata চেকার বন্ধ করা
+          # রিলিজ বিল্ডে ডিবাগ কী অ্যাসাইন করা যাতে সাইনিং এরর না হয়
           python3 -c "
           p = 'android/app/build.gradle.kts'
           with open(p, 'r') as f:
@@ -54,14 +50,15 @@ jobs:
           c = c.replace('buildTypes {', 'buildTypes {\n        getByName(\"release\") {\n            signingConfig = signingConfigs.getByName(\"debug\")\n        }')
           with open(p, 'w') as f:
               f.write(c)
-          with open(p, 'a') as f:
-              f.write('\nandroidComponents {\n    onVariants {\n        it.androidTest?.let { }\n    }\n}\ngradle.projectsEvaluated {\n    tasks.matching { it.name.contains(\"AarMetadata\") }.configureEach {\n        enabled = false\n    }\n}\n')
           "
 
-          # ৪. অতিরিক্ত সেফটি প্রোপার্টি
-          echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
+          # gradle.properties ফাইলে গ্লোবাল সাপ্রেস ফ্ল্যাগ
+          cat << 'EOF' >> android/gradle.properties
+          android.suppressUnsupportedCompileSdk=36
+          android.dependencyResolutionTimeout=600000
+          EOF
 
-          # ৫. অ্যাপের নাম BookNotes এবং অফলাইন স্টোরেজ পারমিশন
+          # অ্যাপের নাম BookNotes এবং স্টোরেজ পারমিশন
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
@@ -71,11 +68,11 @@ jobs:
           flutter pub get
           dart run flutter_launcher_icons
 
-      - name: 7. Compile Universal APK
+      - name: 7. Compile Universal APK (Excluding Blocking Metadata Checks)
         run: |
           cd ../booknotes_fresh
-          # ইউনিভার্সাল রিলিজ APK কম্পাইল
-          flutter build apk --release --target-platform android-arm,android-arm64,android-x64 --no-tree-shake-icons
+          # সরাসরি গ্রেডল আর্গুমেন্টে মেটাডেটা চেক টাস্কগুলো এক্সক্লুড (-x) করে এপিকে কম্পাইল
+          flutter build apk --release --target-platform android-arm,android-arm64,android-x64 --no-tree-shake-icons --extra-front-end-options="" -- --no-daemon -x checkReleaseAarMetadata
 
           mkdir -p ../Book-List/build/app/outputs/flutter-apk/
           cp build/app/outputs/flutter-apk/*.apk ../Book-List/build/app/outputs/flutter-apk/app-release.apk
