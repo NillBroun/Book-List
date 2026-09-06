@@ -66,13 +66,23 @@ jobs:
         run: |
           cd ../booknotes_fresh
 
-          # ক্র্যাশ এড়াতে মিসিং ডিরেক্টরি এবং ডামি মেটাডেটা ফাইল আগে থেকেই তৈরি করে রাখা
-          mkdir -p build/file_picker/intermediates/aar_metadata_check/release/checkReleaseAarMetadata
-          touch build/file_picker/intermediates/aar_metadata_check/release/checkReleaseAarMetadata/aar-metadata.properties
+          PLUGINS=("file_picker" "flutter_plugin_android_lifecycle" "jni" "jni_flutter" "share_plus" "shared_preferences_android")
+          for p in "${PLUGINS[@]}"; do
+            mkdir -p "build/$p/intermediates/aar_metadata_check/release/checkReleaseAarMetadata"
+            touch "build/$p/intermediates/aar_metadata_check/release/checkReleaseAarMetadata/aar-metadata.properties"
+          done
 
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease -x :file_picker:checkReleaseAarMetadata -x checkReleaseAarMetadata --no-daemon
+          ./gradlew assembleRelease \
+            -x :file_picker:checkReleaseAarMetadata \
+            -x :flutter_plugin_android_lifecycle:checkReleaseAarMetadata \
+            -x :jni:checkReleaseAarMetadata \
+            -x :jni_flutter:checkReleaseAarMetadata \
+            -x :share_plus:checkReleaseAarMetadata \
+            -x :shared_preferences_android:checkReleaseAarMetadata \
+            -x checkReleaseAarMetadata \
+            --no-daemon
 
           cd ..
           mkdir -p ../Book-List/build/app/outputs/flutter-apk/
