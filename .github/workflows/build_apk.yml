@@ -33,33 +33,95 @@ jobs:
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-      - name: 5. Configure SDK & Disable AarMetadata Check
+      - name: 5. Auto-Write All 3 Android Gradle Files
         run: |
           cd ../booknotes_fresh
 
-          # মূল অ্যাপে compileSdk 36, minSdk 21 ও targetSdk 34 সেট করা
-          sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle.kts
-          sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle.kts
+          # ১. gradle-wrapper.properties স্বয়ংক্রিয়ভাবে বসানো
+          cat << 'EOF' > android/gradle/wrapper/gradle-wrapper.properties
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-all.zip
+          EOF
 
-          # সমস্ত প্লাগইন ও সাব-প্রজেক্টের AarMetadata ভ্যালিডেশন টাস্ক বন্ধ করা
-          python3 -c "
-          p = 'android/app/build.gradle.kts'
-          with open(p, 'a') as f:
-              f.write('''
-
-          tasks.whenTaskAdded {
-              if (name.contains(\"AarMetadata\")) {
-                  enabled = false
+          # ২. android/build.gradle স্বয়ংক্রিয়ভাবে গ্রুভী ফরম্যাটে তৈরি করা
+          rm -f android/build.gradle.kts
+          cat << 'EOF' > android/build.gradle
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
               }
           }
-          ''')
-          "
+          rootProject.buildDir = "../build"
+          subprojects {
+              project.buildDir = "${rootProject.buildDir}/${project.name}"
+              project.evaluationDependsOn(":app")
+              tasks.whenTaskAdded { task ->
+                  if (task.name.contains("AarMetadata")) {
+                      task.enabled = false
+                  }
+              }
+          }
+          tasks.register("clean", Delete) {
+              delete rootProject.buildDir
+          }
+          EOF
 
-          # gradle.properties-এ অতিরিক্ত সেফটি ফ্ল্যাগ
-          echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
+          # ৩. android/app/build.gradle স্বয়ংক্রিয়ভাবে ঠিক করা
+          rm -f android/app/build.gradle.kts
+          cat << 'EOF' > android/app/build.gradle
+          plugins {
+              id "com.android.application"
+              id "kotlin-android"
+              id "dev.flutter.flutter-gradle-plugin"
+          }
 
-          # অ্যাপের নাম BookNotes এবং অফলাইন স্টোরেজ পারমিশন
+          android {
+              namespace = "com.ahm.booknotes"
+              compileSdk = 36
+              ndkVersion = flutter.ndkVersion
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = JavaVersion.VERSION_17
+              }
+
+              defaultConfig {
+                  applicationId = "com.ahm.booknotes"
+                  minSdk = 21
+                  targetSdk = 34
+                  versionCode = flutter.versionCode
+                  versionName = flutter.versionName
+              }
+
+              buildTypes {
+                  release {
+                      signingConfig = signingConfigs.debug
+                      minifyEnabled = false
+                      shrinkResources = false
+                  }
+              }
+          }
+
+          flutter {
+              source = "../.."
+          }
+
+          tasks.whenTaskAdded { task ->
+              if (task.name.contains("AarMetadata")) {
+                  task.enabled = false
+              }
+          }
+          EOF
+
+          # অ্যাপের নাম BookNotes এবং স্টোরেজ পারমিশন
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
@@ -72,7 +134,6 @@ jobs:
       - name: 7. Compile Universal APK
         run: |
           cd ../booknotes_fresh
-          # ইউনিভার্সাল রিলিজ APK কম্পাইল
           flutter build apk --release --target-platform android-arm,android-arm64,android-x64 --no-tree-shake-icons
 
           mkdir -p ../Book-List/build/app/outputs/flutter-apk/
