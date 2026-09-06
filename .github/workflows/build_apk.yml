@@ -37,12 +37,12 @@ jobs:
         run: |
           cd ../booknotes_fresh
 
-          # ফ্লুটারের ন্যূনতম নিয়ম মেনে minSdk 23, compileSdk 36 ও targetSdk 34 সেট করা
+          # লাইব্রেরির চাহিদা অনুযায়ী minSdk 24, compileSdk 36 ও targetSdk 34 সেট করা
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle.kts
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/g' android/app/build.gradle.kts
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle.kts
 
-          # রিলিজ বিল্ডে সাইনিং ফিক্স
+          # রিলিজ বিল্ডে সাইনিং কনফিগারেশন
           python3 -c "
           p = 'android/app/build.gradle.kts'
           with open(p, 'r') as f:
@@ -52,7 +52,7 @@ jobs:
               f.write(c)
           "
 
-          # সেফটি ফ্ল্যাগ
+          # সাপ্রেস ফ্ল্যাগ
           echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
 
           # অ্যাপের নাম BookNotes এবং স্টোরেজ পারমিশন
