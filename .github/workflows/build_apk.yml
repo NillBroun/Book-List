@@ -33,21 +33,26 @@ jobs:
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-      - name: 5. Force SDK 21 and 34 on App Level
+      - name: 5. Configure SDK & Android Settings
         run: |
           cd ../booknotes_fresh
 
-          # app লেভেলের build.gradle.kts ফাইলে সরাসরি হার্ডকোড করা
-          python3 -c "
-          p = 'android/app/build.gradle.kts'
-          with open(p, 'r') as f:
-              c = f.read()
-          c = c.replace('minSdk = flutter.minSdkVersion', 'minSdk = 21')
-          c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 34')
-          c = c.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 34')
-          with open(p, 'w') as f:
-              f.write(c)
-          "
+          # মূল অ্যাপে compileSdk ও minSdk নিশ্চিত করা
+          sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/g' android/app/build.gradle.kts
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle.kts
+          sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle.kts
+
+          # সমস্ত ডিপেন্ডেন্সি প্লাগইনের জন্য root settings.gradle.kts এ গ্লোবাল SDK হুক যোগ করা
+          cat << 'EOF' >> android/app/build.gradle.kts
+
+          android {
+              configurations.all {
+                  resolutionStrategy {
+                      force("androidx.core:core-ktx:1.13.1")
+                  }
+              }
+          }
+          EOF
 
           # অ্যাপের নাম BookNotes এবং অফলাইন স্টোরেজ পারমিশন
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
@@ -62,13 +67,8 @@ jobs:
       - name: 7. Compile Universal APK
         run: |
           cd ../booknotes_fresh
-
-          # পাব ক্যাশে থাকা সব প্লাগইনের build.gradle ফাইলে minSdk 21 ফোর্স করা (যাতে কোনো প্লাগইন আটকাতে না পারে)
-          find /opt/hostedtoolcache/flutter -name "build.gradle" -exec sed -i 's/minSdkVersion 16/minSdkVersion 21/g' {} + 2>/dev/null || true
-          find ~/.pub-cache -name "build.gradle" -exec sed -i 's/minSdkVersion 16/minSdkVersion 21/g' {} + 2>/dev/null || true
-
-          # ইউনিভার্সাল রিলিজ বিল্ড
-          flutter build apk --release --target-platform android-arm,android-arm64,android-x64
+          # রিলিজ মোডে বিল্ড ও বিস্তারিত স্ট্যাকট্রেস সক্রিয় রাখা
+          flutter build apk --release --target-platform android-arm,android-arm64,android-x64 -v
 
           mkdir -p ../Book-List/build/app/outputs/flutter-apk/
           cp build/app/outputs/flutter-apk/*.apk ../Book-List/build/app/outputs/flutter-apk/app-release.apk
