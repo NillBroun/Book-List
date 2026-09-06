@@ -33,16 +33,16 @@ jobs:
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-      - name: 5. Force SDK 36 on All Subprojects & App
+      - name: 5. Configure Main App SDKs & Permissions
         run: |
           cd ../booknotes_fresh
 
-          # ১. অ্যাপ লেভেলে minSdk 24, compileSdk 36 ও targetSdk 34 সেট করা
+          # মূল অ্যাপে minSdk 24, compileSdk 36 ও targetSdk 34
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/g' android/app/build.gradle.kts
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle.kts
 
-          # ২. রিলিজ বিল্ডে ডিবাগ সাইনিং দেওয়া
+          # রিলিজ বিল্ডে সাইনিং কনফিগারেশন
           python3 -c "
           p = 'android/app/build.gradle.kts'
           with open(p, 'r') as f:
@@ -52,45 +52,30 @@ jobs:
               f.write(c)
           "
 
-          # ৩. রুট android/build.gradle.kts-এ file_picker সহ সব প্লাগইনের compileSdk强制 36 করা
-          cat << 'EOF' >> android/build.gradle.kts
-
-          subprojects {
-              afterEvaluate {
-                  if (project.hasProperty("android")) {
-                      val androidExt = project.extensions.findByName("android")
-                      if (androidExt != null) {
-                          try {
-                              val setCompileSdk = androidExt.javaClass.getMethod("setCompileSdkVersion", Int::class.javaPrimitiveType)
-                              setCompileSdk.invoke(androidExt, 36)
-                          } catch (e: Exception) {
-                              // ignore
-                          }
-                      }
-                  }
-              }
-          }
-          EOF
-
-          # ৪. অতিরিক্ত সাপ্রেস ফ্ল্যাগ
+          # সাপ্রেস প্রপার্টি
           echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
 
-          # ৫. অ্যাপের নাম BookNotes এবং অফলাইন স্টোরেজ পারমিশন
+          # অ্যাপের নাম BookNotes এবং অফলাইন স্টোরেজ পারমিশন
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
-      - name: 6. Prepare Packages & Build Flutter Assets
+      - name: 6. Prepare Packages & Direct Patch File Picker
         run: |
           cd ../booknotes_fresh
           flutter pub get
           dart run flutter_launcher_icons
+
+          # ক্যাশে থাকা file_picker এর build.gradle-এ সরাসরি compileSdk 36 করে দেওয়া
+          find /home/runner/.pub-cache/hosted/pub.dev/file_picker* -name "build.gradle" -exec sed -i 's/compileSdkVersion 34/compileSdkVersion 36/g' {} +
+          find /home/runner/.pub-cache/hosted/pub.dev/file_picker* -name "build.gradle" -exec sed -i 's/compileSdk = 34/compileSdk = 36/g' {} +
+          find /home/runner/.pub-cache/hosted/pub.dev/file_picker* -name "build.gradle.kts" -exec sed -i 's/compileSdk = 34/compileSdk = 36/g' {} +
+
           flutter build bundle
 
       - name: 7. Compile Universal APK via Gradle
         run: |
           cd ../booknotes_fresh/android
           chmod +x gradlew
-          # কোনো টাস্ক স্কিপ না করে স্বাভাবিক ফুল রিলিজ বিল্ড সম্পন্ন করা
           ./gradlew assembleRelease --no-daemon
 
           cd ..
