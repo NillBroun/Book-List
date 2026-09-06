@@ -33,43 +33,28 @@ jobs:
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
           cp ../Book-List/app_icon2.png ./app_icon2.png
 
-      - name: 5. Force SDK 36 Across All Plugins & Disable AAR Check
+      - name: 5. Configure App Level SDK & Permissions
         run: |
           cd ../booknotes_fresh
 
-          # মূল অ্যাপে compileSdk 36 ও minSdk 21 বসানো
+          # মূল অ্যাপে compileSdk 36, minSdk 21 ও targetSdk 34 সেট করা
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' android/app/build.gradle.kts
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle.kts
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle.kts
 
-          # file_picker সহ সব প্লাগইন যাতে compileSdk 36 পায় এবং AarMetadata টাস্ক স্কিপ হয়
-          cat << 'EOF' >> android/build.gradle.kts
-
-          subprojects {
-              afterEvaluate {
-                  if (project.hasProperty("android")) {
-                      val android = project.extensions.findByName("android")
-                      if (android is com.android.build.gradle.BaseExtension) {
-                          android.compileSdkVersion(36)
-                          android.defaultConfig.minSdkVersion(21)
-                          android.defaultConfig.targetSdkVersion(34)
-                      }
-                  }
-              }
-              tasks.matching { it.name.contains("AarMetadata") }.configureEach {
-                  enabled = false
-              }
-          }
-          EOF
-
-          # অ্যাপের নাম BookNotes এবং অফলাইন স্টোরেজ পারমিশন
+          # অ্যাপের নাম BookNotes এবং স্টোরেজ পারমিশন
           sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
-      - name: 6. Prepare Packages & Launcher Icons
+      - name: 6. Prepare Packages, Patch file_picker & Launcher Icons
         run: |
           cd ../booknotes_fresh
           flutter pub get
+
+          # file_picker প্লাগইনে সরাসরি compileSdk 36 প্যাচ করা
+          find ~/.pub-cache -name "build.gradle" -path "*/file_picker/*" -exec sed -i 's/compileSdkVersion 34/compileSdkVersion 36/g' {} +
+          find ~/.pub-cache -name "build.gradle" -path "*/file_picker/*" -exec sed -i 's/compileSdk 34/compileSdk 36/g' {} +
+
           dart run flutter_launcher_icons
 
       - name: 7. Compile Universal APK
