@@ -194,21 +194,21 @@ class BookListScreen extends StatefulWidget {
 class _BookListScreenState extends State<BookListScreen> {
   List<Book> _books = [];
   List<Book> _filteredBooks = [];
-  final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _bookSearchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   bool _showOnlyFavorites = false;
-  bool _isSearching = false;
+  bool _isSearchingBooks = false;
 
   @override
   void initState() {
     super.initState();
     _loadBooks();
-    _searchController.addListener(_filterAndSortBooks);
+    _bookSearchController.addListener(_filterAndSortBooks);
   }
 
   @override
   void dispose() {
-    _searchController.dispose();
+    _bookSearchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
   }
@@ -232,17 +232,14 @@ class _BookListScreenState extends State<BookListScreen> {
   }
 
   void _filterAndSortBooks() {
-    final query = _searchController.text.toLowerCase().trim();
+    final query = _bookSearchController.text.toLowerCase().trim();
     final sort = BookNotesApp.of(context).sortOrder;
 
     List<Book> temp = _books.where((book) {
       final matchesQuery = query.isEmpty ||
           book.title.toLowerCase().contains(query) ||
           book.author.toLowerCase().contains(query) ||
-          book.category.toLowerCase().contains(query) ||
-          book.notes.any((n) =>
-              n.title.toLowerCase().contains(query) ||
-              n.content.toLowerCase().contains(query));
+          book.category.toLowerCase().contains(query);
       final matchesFavorite = _showOnlyFavorites ? book.isFavorite : true;
       return matchesQuery && matchesFavorite;
     }).toList();
@@ -310,6 +307,128 @@ class _BookListScreenState extends State<BookListScreen> {
             child: const Text('Delete', style: TextStyle(color: Colors.white)),
           ),
         ],
+      ),
+    );
+  }
+
+  // 🔍 Settings-এর ভেতরের Find: পুরো অ্যাপের সব নোটের ভেতরের টেক্সট খোঁজা
+  void _openFindInNotesDialog() {
+    final searchCtrl = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF181B19),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final q = searchCtrl.text.toLowerCase().trim();
+          final List<Map<String, dynamic>> results = [];
+
+          if (q.isNotEmpty) {
+            for (var b in _books) {
+              for (var n in b.notes) {
+                if (n.title.toLowerCase().contains(q) || n.content.toLowerCase().contains(q)) {
+                  results.add({'book': b, 'note': n});
+                }
+              }
+            }
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 18,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+            ),
+            child: SizedBox(
+              height: MediaQuery.of(ctx).size.height * 0.75,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.find_in_page_outlined, color: Color(0xFF00E676)),
+                      SizedBox(width: 8),
+                      Text(
+                        'Find in Notes',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: searchCtrl,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: 'Search words across all notes...',
+                      hintStyle: const TextStyle(color: Colors.white38),
+                      prefixIcon: const Icon(Icons.search, color: Color(0xFF00E676)),
+                      filled: true,
+                      fillColor: const Color(0xFF0F1110),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                    ),
+                    onChanged: (val) => setSheetState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: q.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'Type keywords to search inside your reading notes.',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          )
+                        : results.isEmpty
+                            ? const Center(
+                                child: Text('No notes matched your search.', style: TextStyle(color: Colors.grey)),
+                              )
+                            : ListView.builder(
+                                itemCount: results.length,
+                                itemBuilder: (context, i) {
+                                  final b = results[i]['book'] as Book;
+                                  final n = results[i]['note'] as NoteItem;
+                                  return Card(
+                                    color: const Color(0xFF0F1110),
+                                    margin: const EdgeInsets.symmetric(vertical: 4),
+                                    child: ListTile(
+                                      title: Text(n.title, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00E676))),
+                                      subtitle: Text(
+                                        'Book: ${b.title}\n${n.content}',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(color: Colors.white70, fontSize: 13),
+                                      ),
+                                      onTap: () {
+                                        Navigator.pop(ctx);
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => NoteDetailScreen(
+                                              bookTitle: b.title,
+                                              note: n,
+                                              onDelete: () {
+                                                setState(() {
+                                                  b.notes.removeWhere((item) => item.id == n.id);
+                                                });
+                                                _saveBooks();
+                                              },
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  );
+                                },
+                              ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -467,9 +586,9 @@ class _BookListScreenState extends State<BookListScreen> {
           backgroundColor: const Color(0xFF181B19),
           title: const Row(
             children: [
-              Icon(Icons.settings, color: Color(0xFF00E676)),
+              Icon(Icons.tune, color: Color(0xFF00E676)),
               SizedBox(width: 8),
-              Text('Settings', style: TextStyle(color: Color(0xFF00E676))),
+              Text('Preferences', style: TextStyle(color: Color(0xFF00E676))),
             ],
           ),
           content: Column(
@@ -610,31 +729,41 @@ class _BookListScreenState extends State<BookListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: _isSearching
+        title: _isSearchingBooks
             ? TextField(
-                controller: _searchController,
+                controller: _bookSearchController,
                 focusNode: _searchFocusNode,
                 autofocus: true,
-                style: const TextStyle(color: Colors.white),
+                style: const TextStyle(color: Colors.white, fontSize: 16),
                 decoration: const InputDecoration(
-                  hintText: 'Find in books & notes...',
+                  hintText: 'Search book, author, category...',
                   hintStyle: TextStyle(color: Colors.white38),
                   border: InputBorder.none,
                 ),
               )
             : const Text('BookNote'),
         actions: [
-          if (_isSearching)
-            IconButton(
-              icon: const Icon(Icons.close),
-              tooltip: 'Close Search',
-              onPressed: () {
-                setState(() {
-                  _isSearching = false;
-                  _searchController.clear();
+          // 🔍 ১. বই ও লেখক সার্চ করার আইকন (Favorites-এর পাশে)
+          IconButton(
+            icon: Icon(_isSearchingBooks ? Icons.close : Icons.search),
+            tooltip: _isSearchingBooks ? 'Close Search' : 'Search Books',
+            onPressed: () {
+              setState(() {
+                if (_isSearchingBooks) {
+                  _isSearchingBooks = false;
+                  _bookSearchController.clear();
+                } else {
+                  _isSearchingBooks = true;
+                }
+              });
+              if (_isSearchingBooks) {
+                Future.delayed(const Duration(milliseconds: 100), () {
+                  _searchFocusNode.requestFocus();
                 });
-              },
-            ),
+              }
+            },
+          ),
+          // ❤️ ২. Favorites ফিল্টার আইকন
           IconButton(
             icon: Icon(
               _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
@@ -648,19 +777,12 @@ class _BookListScreenState extends State<BookListScreen> {
               });
             },
           ),
-          // 👇 এখানে ৩-ডটের বদলে সরাসরি Settings আইকন সেট করা হয়েছে 👇
+          // ⚙️ ৩. Settings মেনু (যার ভেতরে নোটের সব লেখার জন্য Find অপশন আছে)
           PopupMenuButton<String>(
             icon: const Icon(Icons.settings),
             tooltip: 'Settings',
             onSelected: (value) {
-              if (value == 'find') {
-                setState(() {
-                  _isSearching = true;
-                });
-                Future.delayed(const Duration(milliseconds: 100), () {
-                  _searchFocusNode.requestFocus();
-                });
-              }
+              if (value == 'find') _openFindInNotesDialog();
               if (value == 'settings') _openSettingsDialog();
               if (value == 'export') _exportBackupFile();
               if (value == 'import') _importBackupFile();
@@ -671,9 +793,9 @@ class _BookListScreenState extends State<BookListScreen> {
                 value: 'find',
                 child: Row(
                   children: [
-                    Icon(Icons.search, color: Color(0xFF00E676)),
+                    Icon(Icons.find_in_page_outlined, color: Color(0xFF00E676)),
                     SizedBox(width: 10),
-                    Text('Find'),
+                    Text('Find in Notes'),
                   ],
                 ),
               ),
@@ -726,7 +848,7 @@ class _BookListScreenState extends State<BookListScreen> {
       body: _filteredBooks.isEmpty
           ? Center(
               child: Text(
-                _isSearching ? 'No matching books or notes found.' : 'No books found. Tap + to add.',
+                _isSearchingBooks ? 'No matching books found.' : 'No books found. Tap + to add.',
                 style: const TextStyle(color: Colors.grey),
               ),
             )
