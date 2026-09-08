@@ -14,6 +14,10 @@ dependencies:
   file_picker: ^8.0.0
   path_provider: ^2.1.2
   url_launcher: ^6.2.5
+  # নতুন ফিচারগুলোর জন্য প্রয়োজনীয় প্যাকেজ
+  intl: ^0.19.0
+  archive: ^3.6.1
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:
