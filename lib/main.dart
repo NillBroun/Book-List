@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,6 +9,9 @@ import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:intl/intl.dart';
+import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,13 +37,20 @@ String formatTimestamp(String isoString) {
     } else if (difference == 1) {
       return 'Yesterday, $timeStr';
     } else {
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      ];
       return '${dt.day} ${months[dt.month - 1]}, ${dt.year} • $timeStr';
     }
   } catch (e) {
     return '';
   }
 }
+
+// ---------------------------------------------------------------------------
+// DATA MODELS
+// ---------------------------------------------------------------------------
 
 class NoteItem {
   String id;
@@ -115,6 +127,126 @@ class Book {
       );
 }
 
+// ---------------------------------------------------------------------------
+// TYPEWRITER ANIMATION COMPONENT
+// ---------------------------------------------------------------------------
+
+class TypewriterGuide extends StatefulWidget {
+  final List<String> texts;
+  final IconData icon;
+
+  const TypewriterGuide({
+    super.key,
+    required this.texts,
+    required this.icon,
+  });
+
+  @override
+  State<TypewriterGuide> createState() => _TypewriterGuideState();
+}
+
+class _TypewriterGuideState extends State<TypewriterGuide> {
+  int _textIndex = 0;
+  int _charIndex = 0;
+  bool _isDeleting = false;
+  Timer? _timer;
+  String _displayedText = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _startTyping();
+  }
+
+  void _startTyping() {
+    _timer = Timer.periodic(const Duration(milliseconds: 65), (timer) {
+      if (!mounted) return;
+      final currentFullText = widget.texts[_textIndex];
+
+      setState(() {
+        if (!_isDeleting) {
+          if (_charIndex < currentFullText.length) {
+            _charIndex++;
+            _displayedText = currentFullText.substring(0, _charIndex);
+          } else {
+            _isDeleting = true;
+            _timer?.cancel();
+            Future.delayed(const Duration(milliseconds: 1600), () {
+              if (mounted) _startTyping();
+            });
+          }
+        } else {
+          if (_charIndex > 0) {
+            _charIndex--;
+            _displayedText = currentFullText.substring(0, _charIndex);
+          } else {
+            _isDeleting = false;
+            _textIndex = (_textIndex + 1) % widget.texts.length;
+          }
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF181B19),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF00E676).withOpacity(0.3)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(widget.icon, size: 36, color: const Color(0xFF00E676)),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 48,
+            child: Center(
+              child: Text(
+                '$_displayedText|',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white70,
+                  fontStyle: FontStyle.italic,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.touch_app, size: 15, color: Color(0xFF00E676)),
+              SizedBox(width: 6),
+              Text(
+                'Tap + below to start',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ROOT APP
+// ---------------------------------------------------------------------------
+
 class BookNotesApp extends StatefulWidget {
   const BookNotesApp({super.key});
 
@@ -175,7 +307,11 @@ class _BookNotesAppState extends State<BookNotesApp> {
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFF181B19),
           elevation: 0,
-          titleTextStyle: TextStyle(color: Color(0xFF00E676), fontSize: 20, fontWeight: FontWeight.bold),
+          titleTextStyle: TextStyle(
+            color: Color(0xFF00E676),
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
           iconTheme: IconThemeData(color: Color(0xFF00E676)),
         ),
       ),
@@ -183,6 +319,10 @@ class _BookNotesAppState extends State<BookNotesApp> {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// BOOK LIST SCREEN
+// ---------------------------------------------------------------------------
 
 class BookListScreen extends StatefulWidget {
   const BookListScreen({super.key});
@@ -194,16 +334,26 @@ class BookListScreen extends StatefulWidget {
 class _BookListScreenState extends State<BookListScreen> {
   List<Book> _books = [];
   List<Book> _filteredBooks = [];
+
   final TextEditingController _bookSearchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+
   bool _showOnlyFavorites = false;
   bool _isSearchingBooks = false;
+
+  final List<String> _homePrompts = [
+    'Add your currently reading books...',
+    'Save your favorite book summaries & thoughts...',
+    'Organize study topics, articles, or lecture notes...',
+    'Track reading goals, authors, and ratings...',
+  ];
 
   @override
   void initState() {
     super.initState();
     _loadBooks();
     _bookSearchController.addListener(_filterAndSortBooks);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkOnboarding());
   }
 
   @override
@@ -211,6 +361,144 @@ class _BookListScreenState extends State<BookListScreen> {
     _bookSearchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    final bool hasSeen = prefs.getBool('has_seen_onboarding_guide') ?? false;
+    if (!hasSeen && mounted) {
+      _showOnboardingGuideDialog();
+    }
+  }
+
+  void _showOnboardingGuideDialog() {
+    bool doNotShowAgain = false;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF181B19),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFF00E676), width: 0.8),
+          ),
+          title: const Text(
+            'Welcome to BookNote! 👋',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'How to get started:',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF00E676),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                _buildGuideRow(
+                  '1. Create a Book',
+                  'Tap the + button below to add your first book or notebook.',
+                ),
+                const SizedBox(height: 6),
+                _buildGuideRow(
+                  '2. Add Your Notes',
+                  'Tap on any book to open it and start writing your thoughts, summaries, or quotes.',
+                ),
+                const Divider(color: Colors.white24, height: 22),
+                const Text(
+                  'Quick Tips:',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF00E676),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                _buildGuideRow(
+                  '🔍 Search (Top Bar)',
+                  'Quickly filter books by title, author, or category.',
+                ),
+                const SizedBox(height: 6),
+                _buildGuideRow(
+                  '⚙️ Find in Notes (Settings)',
+                  'Search for specific words or lines inside all your notes.',
+                ),
+                const SizedBox(height: 6),
+                _buildGuideRow(
+                  '🔒 Backup & Restore (Settings)',
+                  'Export password-protected ZIP backups to keep your data safe offline.',
+                ),
+                const SizedBox(height: 10),
+                InkWell(
+                  onTap: () {
+                    setDialogState(() {
+                      doNotShowAgain = !doNotShowAgain;
+                    });
+                  },
+                  child: Row(
+                    children: [
+                      Checkbox(
+                        value: doNotShowAgain,
+                        activeColor: const Color(0xFF00E676),
+                        checkColor: Colors.black,
+                        onChanged: (val) {
+                          setDialogState(() {
+                            doNotShowAgain = val ?? false;
+                          });
+                        },
+                      ),
+                      const Text(
+                        "Don't show this again",
+                        style: TextStyle(fontSize: 12, color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00E676),
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () async {
+                if (doNotShowAgain) {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('has_seen_onboarding_guide', true);
+                }
+                if (mounted) Navigator.pop(ctx);
+              },
+              child: const Text('Get Started', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGuideRow(String title, String desc) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+        Text(
+          desc,
+          style: const TextStyle(fontSize: 11, color: Colors.white60),
+        ),
+      ],
+    );
   }
 
   Future<void> _loadBooks() async {
@@ -275,6 +563,25 @@ class _BookListScreenState extends State<BookListScreen> {
     _filterAndSortBooks();
   }
 
+  void _showCleanSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(color: Colors.white, fontSize: 13)),
+        backgroundColor: isError ? Colors.red.shade900 : const Color(0xFF181B19),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 2000),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(
+            color: isError ? Colors.redAccent : const Color(0xFF00E676),
+            width: 0.8,
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showDeleteBookDialog(Book book) {
     showDialog(
       context: context,
@@ -300,9 +607,7 @@ class _BookListScreenState extends State<BookListScreen> {
               });
               _saveBooks();
               Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('\'${book.title}\' deleted successfully')),
-              );
+              _showCleanSnackBar('\'${book.title}\' deleted successfully');
             },
             child: const Text('Delete', style: TextStyle(color: Colors.white)),
           ),
@@ -311,7 +616,6 @@ class _BookListScreenState extends State<BookListScreen> {
     );
   }
 
-  // 🔍 Settings-এর ভেতরের Find: পুরো অ্যাপের সব নোটের ভেতরের টেক্সট খোঁজা
   void _openFindInNotesDialog() {
     final searchCtrl = TextEditingController();
     showModalBottomSheet(
@@ -335,7 +639,6 @@ class _BookListScreenState extends State<BookListScreen> {
               }
             }
           }
-
           return Padding(
             padding: EdgeInsets.only(
               left: 16,
@@ -407,7 +710,7 @@ class _BookListScreenState extends State<BookListScreen> {
                                           context,
                                           MaterialPageRoute(
                                             builder: (context) => NoteDetailScreen(
-                                              bookTitle: b.title,
+                                              book: b,
                                               note: n,
                                               onDelete: () {
                                                 setState(() {
@@ -415,6 +718,7 @@ class _BookListScreenState extends State<BookListScreen> {
                                                 });
                                                 _saveBooks();
                                               },
+                                              onDirectSave: _saveBooks,
                                             ),
                                           ),
                                         );
@@ -433,61 +737,216 @@ class _BookListScreenState extends State<BookListScreen> {
     );
   }
 
-  Future<void> _exportBackupFile() async {
-    try {
-      final jsonString = jsonEncode(_books.map((b) => b.toMap()).toList());
-      final directory = await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
-      final dateStr = DateTime.now().toIso8601String().substring(0, 10);
-      final file = File('${directory.path}/BookNote_Backup_$dateStr.json');
-      await file.writeAsString(jsonString);
+  // ---------------------------------------------------------------------------
+  // SECURE ZIP BACKUP & RESTORE WITH PASSWORD ENCRYPTION
+  // ---------------------------------------------------------------------------
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Backup saved: ${file.path}'),
-          backgroundColor: const Color(0xFF10B981),
-          action: SnackBarAction(
-            label: 'Share',
-            textColor: Colors.black,
-            onPressed: () => Share.shareXFiles([XFile(file.path)], text: 'My BookNote Backup Data'),
-          ),
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to export backup!'), backgroundColor: Colors.redAccent),
-      );
+  Uint8List _deriveKey(String password) {
+    return Uint8List.fromList(sha256.convert(utf8.encode(password)).bytes);
+  }
+
+  Uint8List _xorCipher(List<int> bytes, Uint8List key) {
+    final Uint8List result = Uint8List(bytes.length);
+    for (int i = 0; i < bytes.length; i++) {
+      result[i] = bytes[i] ^ key[i % key.length];
     }
+    return result;
+  }
+
+  Future<void> _exportBackupFile() async {
+    final passCtrl = TextEditingController();
+    final confirmPassCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF181B19),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xFF00E676), width: 0.8),
+        ),
+        title: const Text('Export ZIP Backup', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Set a password to protect your backup archive (.zip).',
+              style: TextStyle(fontSize: 12, color: Colors.white70),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: passCtrl,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Enter Password *',
+                labelStyle: TextStyle(color: Color(0xFF00E676)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: confirmPassCtrl,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Confirm Password *',
+                labelStyle: TextStyle(color: Color(0xFF00E676)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00E676),
+              foregroundColor: Colors.black,
+            ),
+            onPressed: () async {
+              final p1 = passCtrl.text;
+              final p2 = confirmPassCtrl.text;
+              if (p1.isEmpty) {
+                _showCleanSnackBar('Password cannot be empty!', isError: true);
+                return;
+              }
+              if (p1 != p2) {
+                _showCleanSnackBar('Passwords do not match!', isError: true);
+                return;
+              }
+
+              Navigator.pop(ctx);
+
+              try {
+                final jsonString = jsonEncode(_books.map((b) => b.toMap()).toList());
+                final jsonBytes = utf8.encode(jsonString);
+                final key = _deriveKey(p1);
+                final encrypted = _xorCipher(jsonBytes, key);
+
+                final archive = Archive();
+                archive.addFile(ArchiveFile('vault.bin', encrypted.length, encrypted));
+                final zipData = ZipEncoder().encode(archive);
+
+                if (zipData == null) {
+                  _showCleanSnackBar('Failed to generate ZIP!', isError: true);
+                  return;
+                }
+
+                final directory = await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
+                final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+                final file = File('${directory.path}/BookNote_Backup_$timestamp.zip');
+                await file.writeAsBytes(zipData);
+
+                if (!mounted) return;
+
+                _showCleanSnackBar('ZIP backup created successfully.');
+                await Share.shareXFiles([XFile(file.path, mimeType: 'application/zip')], text: 'BookNote Password-Protected Backup');
+              } catch (e) {
+                _showCleanSnackBar('Failed to export backup!', isError: true);
+              }
+            },
+            child: const Text('Export ZIP'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _importBackupFile() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['json'],
+        allowedExtensions: ['zip'],
       );
 
-      if (result != null && result.files.single.path != null) {
-        final file = File(result.files.single.path!);
-        final content = await file.readAsString();
-        final List decoded = jsonDecode(content);
+      if (result == null || result.files.single.path == null) return;
 
-        setState(() {
-          _books = decoded.map((item) => Book.fromMap(item)).toList();
-          _filterAndSortBooks();
-        });
-        await _saveBooks();
+      final file = File(result.files.single.path!);
+      final zipBytes = await file.readAsBytes();
 
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Data restored successfully!'), backgroundColor: Color(0xFF10B981)),
-        );
-      }
+      if (!mounted) return;
+
+      final passCtrl = TextEditingController();
+
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF181B19),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: Color(0xFF00E676), width: 0.8),
+          ),
+          title: const Text('Enter Backup Password', style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'This ZIP archive is protected. Enter the correct password to restore.',
+                style: TextStyle(fontSize: 12, color: Colors.white70),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: passCtrl,
+                obscureText: true,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Password',
+                  labelStyle: TextStyle(color: Color(0xFF00E676)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00E676),
+                foregroundColor: Colors.black,
+              ),
+              onPressed: () async {
+                final password = passCtrl.text;
+                Navigator.pop(ctx);
+
+                try {
+                  final archive = ZipDecoder().decodeBytes(zipBytes);
+                  final vaultFile = archive.findFile('vault.bin');
+
+                  if (vaultFile == null) {
+                    _showCleanSnackBar('Invalid BookNote ZIP backup!', isError: true);
+                    return;
+                  }
+
+                  final encrypted = vaultFile.content as List<int>;
+                  final key = _deriveKey(password);
+                  final decrypted = _xorCipher(encrypted, key);
+
+                  final content = utf8.decode(decrypted);
+                  final List decoded = jsonDecode(content);
+
+                  setState(() {
+                    _books = decoded.map((item) => Book.fromMap(item)).toList();
+                    _filterAndSortBooks();
+                  });
+                  await _saveBooks();
+
+                  _showCleanSnackBar('Data restored successfully!');
+                } catch (_) {
+                  _showCleanSnackBar('Wrong password or corrupted file!', isError: true);
+                }
+              },
+              child: const Text('Unlock & Restore'),
+            ),
+          ],
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invalid backup file!'), backgroundColor: Colors.redAccent),
-      );
+      _showCleanSnackBar('Failed to read file!', isError: true);
     }
   }
 
@@ -743,7 +1202,6 @@ class _BookListScreenState extends State<BookListScreen> {
               )
             : const Text('BookNote'),
         actions: [
-          // 🔍 ১. বই ও লেখক সার্চ করার আইকন (Favorites-এর পাশে)
           IconButton(
             icon: Icon(_isSearchingBooks ? Icons.close : Icons.search),
             tooltip: _isSearchingBooks ? 'Close Search' : 'Search Books',
@@ -763,7 +1221,6 @@ class _BookListScreenState extends State<BookListScreen> {
               }
             },
           ),
-          // ❤️ ২. Favorites ফিল্টার আইকন
           IconButton(
             icon: Icon(
               _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
@@ -777,7 +1234,6 @@ class _BookListScreenState extends State<BookListScreen> {
               });
             },
           ),
-          // ⚙️ ৩. Settings মেনু (যার ভেতরে নোটের সব লেখার জন্য Find অপশন আছে)
           PopupMenuButton<String>(
             icon: const Icon(Icons.settings),
             tooltip: 'Settings',
@@ -786,6 +1242,7 @@ class _BookListScreenState extends State<BookListScreen> {
               if (value == 'settings') _openSettingsDialog();
               if (value == 'export') _exportBackupFile();
               if (value == 'import') _importBackupFile();
+              if (value == 'guide') _showOnboardingGuideDialog();
               if (value == 'about') _showAboutDialog();
             },
             itemBuilder: (ctx) => [
@@ -814,9 +1271,9 @@ class _BookListScreenState extends State<BookListScreen> {
                 value: 'export',
                 child: Row(
                   children: [
-                    Icon(Icons.file_upload_outlined, color: Color(0xFF00E676)),
+                    Icon(Icons.archive_outlined, color: Color(0xFF00E676)),
                     SizedBox(width: 10),
-                    Text('Backup (File)'),
+                    Text('Backup (ZIP)'),
                   ],
                 ),
               ),
@@ -824,13 +1281,23 @@ class _BookListScreenState extends State<BookListScreen> {
                 value: 'import',
                 child: Row(
                   children: [
-                    Icon(Icons.file_download_outlined, color: Colors.blueAccent),
+                    Icon(Icons.unarchive_outlined, color: Colors.blueAccent),
                     SizedBox(width: 10),
-                    Text('Restore (File)'),
+                    Text('Restore (ZIP)'),
                   ],
                 ),
               ),
               const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'guide',
+                child: Row(
+                  children: [
+                    Icon(Icons.help_outline, color: Color(0xFF00E676)),
+                    SizedBox(width: 10),
+                    Text('How to Use'),
+                  ],
+                ),
+              ),
               const PopupMenuItem(
                 value: 'about',
                 child: Row(
@@ -847,10 +1314,15 @@ class _BookListScreenState extends State<BookListScreen> {
       ),
       body: _filteredBooks.isEmpty
           ? Center(
-              child: Text(
-                _isSearchingBooks ? 'No matching books found.' : 'No books found. Tap + to add.',
-                style: const TextStyle(color: Colors.grey),
-              ),
+              child: _books.isEmpty
+                  ? TypewriterGuide(
+                      texts: _homePrompts,
+                      icon: Icons.menu_book,
+                    )
+                  : Text(
+                      _isSearchingBooks ? 'No matching books found.' : 'No books found. Tap + to add.',
+                      style: const TextStyle(color: Colors.grey),
+                    ),
             )
           : ListView.builder(
               itemCount: _filteredBooks.length,
@@ -865,7 +1337,13 @@ class _BookListScreenState extends State<BookListScreen> {
                     onTap: () async {
                       await Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => BookNotesScreen(book: item)),
+                        MaterialPageRoute(
+                          builder: (context) => BookNotesScreen(
+                            book: item,
+                            isFirstEverBook: _books.length == 1,
+                            onSaveRequested: _saveBooks,
+                          ),
+                        ),
                       );
                       _saveBooks();
                       _filterAndSortBooks();
@@ -947,28 +1425,48 @@ class _BookListScreenState extends State<BookListScreen> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// BOOK NOTES SCREEN
+// ---------------------------------------------------------------------------
+
 class BookNotesScreen extends StatefulWidget {
   final Book book;
-  const BookNotesScreen({super.key, required this.book});
+  final bool isFirstEverBook;
+  final Future<void> Function() onSaveRequested;
+
+  const BookNotesScreen({
+    super.key,
+    required this.book,
+    required this.isFirstEverBook,
+    required this.onSaveRequested,
+  });
 
   @override
   State<BookNotesScreen> createState() => _BookNotesScreenState();
 }
 
 class _BookNotesScreenState extends State<BookNotesScreen> {
+  final List<String> _firstBookPrompts = [
+    '💡 Write your book summary or personal review...',
+    '📌 Save your favorite quotes and key lessons...',
+    '✍️ Add chapter-wise takeaways & thoughts...',
+  ];
+
   void _openNoteViewer(NoteItem note) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (ctx) => NoteDetailScreen(
-          bookTitle: widget.book.title,
+          book: widget.book,
           note: note,
           onDelete: () {
             setState(() {
               widget.book.notes.removeWhere((n) => n.id == note.id);
             });
+            widget.onSaveRequested();
             Navigator.pop(ctx);
           },
+          onDirectSave: widget.onSaveRequested,
         ),
       ),
     );
@@ -984,14 +1482,25 @@ class _BookNotesScreenState extends State<BookNotesScreen> {
           pageTitle: 'Add Note',
           initialTitle: defaultTitle,
           initialContent: '',
+          onInstantPersist: (note) {
+            final idx = widget.book.notes.indexWhere((n) => n.id == note.id);
+            if (idx != -1) {
+              widget.book.notes[idx] = note;
+            } else {
+              widget.book.notes.insert(0, note);
+            }
+            widget.onSaveRequested();
+          },
         ),
       ),
     );
-
     if (result != null) {
       setState(() {
-        widget.book.notes.add(result);
+        if (!widget.book.notes.any((n) => n.id == result.id)) {
+          widget.book.notes.insert(0, result);
+        }
       });
+      await widget.onSaveRequested();
     }
   }
 
@@ -1002,12 +1511,17 @@ class _BookNotesScreenState extends State<BookNotesScreen> {
         title: Text(widget.book.title),
       ),
       body: widget.book.notes.isEmpty
-          ? const Center(
-              child: Text(
-                'No notes yet. Tap + to add thoughts, quotes or summaries.',
-                style: TextStyle(color: Colors.grey),
-                textAlign: TextAlign.center,
-              ),
+          ? Center(
+              child: widget.isFirstEverBook
+                  ? TypewriterGuide(
+                      texts: _firstBookPrompts,
+                      icon: Icons.edit_note,
+                    )
+                  : const Text(
+                      'No notes yet. Tap + to add thoughts, quotes or summaries.',
+                      style: TextStyle(color: Colors.grey),
+                      textAlign: TextAlign.center,
+                    ),
             )
           : ListView.builder(
               padding: const EdgeInsets.all(12),
@@ -1054,16 +1568,22 @@ class _BookNotesScreenState extends State<BookNotesScreen> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// NOTE DETAIL SCREEN
+// ---------------------------------------------------------------------------
+
 class NoteDetailScreen extends StatefulWidget {
-  final String bookTitle;
+  final Book book;
   final NoteItem note;
   final VoidCallback onDelete;
+  final Future<void> Function() onDirectSave;
 
   const NoteDetailScreen({
     super.key,
-    required this.bookTitle,
+    required this.book,
     required this.note,
     required this.onDelete,
+    required this.onDirectSave,
   });
 
   @override
@@ -1079,16 +1599,25 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
           pageTitle: 'Edit Note',
           initialTitle: widget.note.title,
           initialContent: widget.note.content,
+          existingId: widget.note.id,
+          onInstantPersist: (note) {
+            setState(() {
+              widget.note.title = note.title;
+              widget.note.content = note.content;
+              widget.note.updatedAt = note.updatedAt;
+            });
+            widget.onDirectSave();
+          },
         ),
       ),
     );
-
     if (updated != null) {
       setState(() {
         widget.note.title = updated.title;
         widget.note.content = updated.content;
         widget.note.updatedAt = updated.updatedAt;
       });
+      await widget.onDirectSave();
     }
   }
 
@@ -1129,7 +1658,10 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
             onPressed: () {
               Clipboard.setData(ClipboardData(text: '${widget.note.title}\n\n${widget.note.content}'));
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Note copied to clipboard!')),
+                const SnackBar(
+                  content: Text('Note copied to clipboard!'),
+                  duration: Duration(milliseconds: 1500),
+                ),
               );
             },
           ),
@@ -1137,7 +1669,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
             icon: const Icon(Icons.share),
             tooltip: 'Share Note',
             onPressed: () {
-              Share.share('${widget.note.title}\nBook: ${widget.bookTitle}\n\n${widget.note.content}');
+              Share.share('${widget.note.title}\nBook: ${widget.book.title}\n\n${widget.note.content}');
             },
           ),
           IconButton(
@@ -1183,16 +1715,24 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// NOTE EDITOR (COLORNOTE-STYLE LIFECYCLE AUTO-SAVE + DATE/TIME TRACKING)
+// ---------------------------------------------------------------------------
+
 class NoteEditorScreen extends StatefulWidget {
   final String pageTitle;
   final String initialTitle;
   final String initialContent;
+  final String? existingId;
+  final Function(NoteItem) onInstantPersist;
 
   const NoteEditorScreen({
     super.key,
     required this.pageTitle,
     required this.initialTitle,
     required this.initialContent,
+    this.existingId,
+    required this.onInstantPersist,
   });
 
   @override
@@ -1202,12 +1742,14 @@ class NoteEditorScreen extends StatefulWidget {
 class _NoteEditorScreenState extends State<NoteEditorScreen> with WidgetsBindingObserver {
   late TextEditingController _titleController;
   late TextEditingController _contentController;
+  late String _noteId;
   bool _isSaved = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _noteId = widget.existingId ?? DateTime.now().millisecondsSinceEpoch.toString();
     _titleController = TextEditingController(text: widget.initialTitle);
     _contentController = TextEditingController(text: widget.initialContent);
   }
@@ -1215,6 +1757,9 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> with WidgetsBinding
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (!_isSaved) {
+      _executeSave(closeScreen: false);
+    }
     _titleController.dispose();
     _contentController.dispose();
     super.dispose();
@@ -1223,34 +1768,33 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> with WidgetsBinding
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      _saveAndExit(closeScreen: false);
+      _executeSave(closeScreen: false);
     }
   }
 
-  void _saveAndExit({bool closeScreen = true}) {
-    if (_isSaved && closeScreen) return;
-
-    final title = _titleController.text.trim().isEmpty 
-        ? widget.initialTitle 
-        : _titleController.text.trim();
+  NoteItem? _executeSave({required bool closeScreen}) {
+    final title = _titleController.text.trim().isEmpty ? widget.initialTitle : _titleController.text.trim();
     final content = _contentController.text.trim();
 
     if (title.isEmpty && content.isEmpty) {
       if (closeScreen) Navigator.pop(context, null);
-      return;
+      return null;
     }
 
-    final result = NoteItem(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+    final item = NoteItem(
+      id: _noteId,
       title: title,
       content: content,
       updatedAt: DateTime.now().toIso8601String(),
     );
 
+    widget.onInstantPersist(item);
+
     if (closeScreen) {
       _isSaved = true;
-      Navigator.pop(context, result);
+      Navigator.pop(context, item);
     }
+    return item;
   }
 
   @override
@@ -1261,20 +1805,20 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> with WidgetsBinding
       canPop: false,
       onPopInvoked: (didPop) {
         if (didPop) return;
-        _saveAndExit(closeScreen: true);
+        _executeSave(closeScreen: true);
       },
       child: Scaffold(
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () => _saveAndExit(closeScreen: true),
+            onPressed: () => _executeSave(closeScreen: true),
           ),
           title: Text(widget.pageTitle),
           actions: [
             IconButton(
               icon: const Icon(Icons.check, size: 28, color: Color(0xFF00E676)),
               tooltip: 'Save & Exit',
-              onPressed: () => _saveAndExit(closeScreen: true),
+              onPressed: () => _executeSave(closeScreen: true),
             ),
           ],
         ),
@@ -1298,7 +1842,8 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> with WidgetsBinding
                   expands: true,
                   style: TextStyle(fontSize: currentFontSize, height: 1.5),
                   decoration: const InputDecoration(
-                    hintText: 'Start writing your thoughts, notes or quotes...',
+                    hintText: 'Start writing your thoughts, notes or quotes...\nAuto-saves when you leave or switch apps.',
+                    hintStyle: TextStyle(color: Colors.white30),
                     border: InputBorder.none,
                   ),
                 ),
