@@ -31,7 +31,7 @@ jobs:
           cd booknotes_fresh
           cp -r ../Book-List/lib/* ./lib/
           cp ../Book-List/pubspec.yaml ./pubspec.yaml
-          cp ../Book-List/app_icon2.png ./app_icon2.png
+          cp ../Book-List/app_icon3.png ./app_icon3.png
 
       - name: Configure Main App
         run: |
@@ -52,7 +52,7 @@ jobs:
 
           echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
 
-          sed -i 's/android:label=".*"/android:label="BookNotes"/g' android/app/src/main/AndroidManifest.xml
+          sed -i 's/android:label=".*"/android:label="BookNote"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"\/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"\/>\n    <application/g' android/app/src/main/AndroidManifest.xml
 
       - name: Prepare Packages & Build Assets
@@ -90,5 +90,5 @@ jobs:
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: BookNotes-Universal-Release-APK
+          name: BookNote-Universal-Release-APK
           path: build_output/app-release.apk
