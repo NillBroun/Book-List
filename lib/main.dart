@@ -1,255 +1,280 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const BookNoteApp());
+  runApp(const BookNotesApp());
 }
 
-class BookNoteApp extends StatelessWidget {
-  const BookNoteApp({super.key});
+String formatTimestamp(String isoString) {
+  if (isoString.isEmpty) return '';
+  try {
+    final dt = DateTime.parse(isoString).toLocal();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final noteDay = DateTime(dt.year, dt.month, dt.day);
+    final difference = today.difference(noteDay).inDays;
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'BookNote',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF121212),
-        primaryColor: const Color(0xFF00E676),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF00E676),
-          surface: Color(0xFF1E2024),
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF1A1C1E),
-          elevation: 0,
-        ),
-      ),
-      home: const HomeScreen(),
-    );
+    final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final period = dt.hour >= 12 ? 'PM' : 'AM';
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final timeStr = '$hour:$minute $period';
+
+    if (difference == 0) {
+      return 'Today, $timeStr';
+    } else if (difference == 1) {
+      return 'Yesterday, $timeStr';
+    } else {
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return '${dt.day} ${months[dt.month - 1]}, ${dt.year} • $timeStr';
+    }
+  } catch (e) {
+    return '';
   }
 }
 
 class NoteItem {
   String id;
+  String title;
   String content;
-  String createdAt;
+  String updatedAt;
 
   NoteItem({
     required this.id,
+    required this.title,
     required this.content,
-    required this.createdAt,
+    required this.updatedAt,
   });
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toMap() => {
         'id': id,
+        'title': title,
         'content': content,
-        'createdAt': createdAt,
+        'updatedAt': updatedAt,
       };
 
-  factory NoteItem.fromJson(Map<String, dynamic> json) => NoteItem(
-        id: json['id'] ?? '',
-        content: json['content'] ?? '',
-        createdAt: json['createdAt'] ?? '',
+  factory NoteItem.fromMap(Map<String, dynamic> map) => NoteItem(
+        id: map['id'],
+        title: map['title'] ?? 'Note',
+        content: map['content'] ?? '',
+        updatedAt: map['updatedAt'] ?? '',
       );
 }
 
-class BookItem {
+class Book {
   String id;
   String title;
   String author;
   String category;
-  int rating;
+  double rating;
+  bool isFavorite;
+  String createdAt;
   List<NoteItem> notes;
 
-  BookItem({
+  Book({
     required this.id,
     required this.title,
     required this.author,
     required this.category,
-    this.rating = 0,
-    required this.notes,
-  });
+    this.rating = 0.0,
+    this.isFavorite = false,
+    String? createdAt,
+    List<NoteItem>? notes,
+  })  : createdAt = createdAt ?? DateTime.now().toIso8601String(),
+        notes = notes ?? [];
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toMap() => {
         'id': id,
         'title': title,
         'author': author,
         'category': category,
         'rating': rating,
-        'notes': notes.map((n) => n.toJson()).toList(),
+        'isFavorite': isFavorite,
+        'createdAt': createdAt,
+        'notes': notes.map((n) => n.toMap()).toList(),
       };
 
-  factory BookItem.fromJson(Map<String, dynamic> json) => BookItem(
-        id: json['id'] ?? '',
-        title: json['title'] ?? '',
-        author: json['author'] ?? 'Unknown',
-        category: json['category'] ?? 'General',
-        rating: json['rating'] ?? 0,
-        notes: (json['notes'] as List<dynamic>?)
-                ?.map((n) => NoteItem.fromJson(n))
-                .toList() ??
-            [],
+  factory Book.fromMap(Map<String, dynamic> map) => Book(
+        id: map['id'],
+        title: map['title'],
+        author: map['author'],
+        category: map['category'],
+        rating: (map['rating'] ?? 0.0).toDouble(),
+        isFavorite: map['isFavorite'] ?? false,
+        createdAt: map['createdAt'] ?? DateTime.now().toIso8601String(),
+        notes: map['notes'] != null
+            ? (map['notes'] as List).map((n) => NoteItem.fromMap(n)).toList()
+            : [],
       );
 }
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+class BookNotesApp extends StatefulWidget {
+  const BookNotesApp({super.key});
+
+  static _BookNotesAppState of(BuildContext context) =>
+      context.findAncestorStateOfType<_BookNotesAppState>()!;
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<BookNotesApp> createState() => _BookNotesAppState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  List<BookItem> books = [];
-  bool _isSearching = false;
-  final TextEditingController _searchController = TextEditingController();
+class _BookNotesAppState extends State<BookNotesApp> {
+  double _fontSize = 16.0;
+  String _sortOrder = 'newest';
+
+  double get fontSize => _fontSize;
+  String get sortOrder => _sortOrder;
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadSettings();
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    final String? raw = prefs.getString('saved_books');
-    if (raw != null) {
-      final List<dynamic> decoded = jsonDecode(raw);
-      setState(() {
-        books = decoded.map((b) => BookItem.fromJson(b)).toList();
-      });
-    } else {
-      // প্রাথমিক ডেমো বই
-      books = [
-        BookItem(
-          id: '1',
-          title: 'পরকবন',
-          author: 'Unknown',
-          category: 'General',
-          rating: 4,
-          notes: [
-            NoteItem(
-                id: 'n1',
-                content: 'বইটির সূচনা অনেক আকর্ষণীয় ছিল।',
-                createdAt: 'Today'),
-          ],
+    setState(() {
+      _fontSize = prefs.getDouble('pref_font_size') ?? 16.0;
+      _sortOrder = prefs.getString('pref_sort_order') ?? 'newest';
+    });
+  }
+
+  Future<void> updateSettings({double? newFontSize, String? newSortOrder}) async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      if (newFontSize != null) {
+        _fontSize = newFontSize;
+        prefs.setDouble('pref_font_size', newFontSize);
+      }
+      if (newSortOrder != null) {
+        _sortOrder = newSortOrder;
+        prefs.setString('pref_sort_order', newSortOrder);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'BookNote',
+      theme: ThemeData.dark().copyWith(
+        scaffoldBackgroundColor: const Color(0xFF0F1110),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF00E676),
+          secondary: Color(0xFF10B981),
+          surface: Color(0xFF181B19),
         ),
-      ];
-      _saveData();
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF181B19),
+          elevation: 0,
+          titleTextStyle: TextStyle(color: Color(0xFF00E676), fontSize: 20, fontWeight: FontWeight.bold),
+          iconTheme: IconThemeData(color: Color(0xFF00E676)),
+        ),
+      ),
+      home: const BookListScreen(),
+    );
+  }
+}
+
+class BookListScreen extends StatefulWidget {
+  const BookListScreen({super.key});
+
+  @override
+  State<BookListScreen> createState() => _BookListScreenState();
+}
+
+class _BookListScreenState extends State<BookListScreen> {
+  List<Book> _books = [];
+  List<Book> _filteredBooks = [];
+  final TextEditingController _searchController = TextEditingController();
+  bool _showOnlyFavorites = false;
+  bool _isSearching = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBooks();
+    _searchController.addListener(_filterAndSortBooks);
+  }
+
+  Future<void> _loadBooks() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? booksString = prefs.getString('saved_books_data');
+    if (booksString != null) {
+      final List decoded = jsonDecode(booksString);
+      setState(() {
+        _books = decoded.map((item) => Book.fromMap(item)).toList();
+        _filterAndSortBooks();
+      });
     }
   }
 
-  Future<void> _saveData() async {
+  Future<void> _saveBooks() async {
     final prefs = await SharedPreferences.getInstance();
-    final String encoded = jsonEncode(books.map((b) => b.toJson()).toList());
-    await prefs.setString('saved_books', encoded);
+    final String encoded = jsonEncode(_books.map((b) => b.toMap()).toList());
+    await prefs.setString('saved_books_data', encoded);
   }
 
-  List<BookItem> get _filteredBooks {
-    if (_searchController.text.trim().isEmpty) return books;
+  void _filterAndSortBooks() {
     final query = _searchController.text.toLowerCase();
-    return books.where((book) {
-      return book.title.toLowerCase().contains(query) ||
+    final sort = BookNotesApp.of(context).sortOrder;
+
+    List<Book> temp = _books.where((book) {
+      final matchesQuery = book.title.toLowerCase().contains(query) ||
           book.author.toLowerCase().contains(query) ||
           book.category.toLowerCase().contains(query);
+      final matchesFavorite = _showOnlyFavorites ? book.isFavorite : true;
+      return matchesQuery && matchesFavorite;
     }).toList();
+
+    if (sort == 'newest') {
+      temp.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    } else if (sort == 'oldest') {
+      temp.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    } else if (sort == 'az') {
+      temp.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+    } else if (sort == 'rating') {
+      temp.sort((a, b) => b.rating.compareTo(a.rating));
+    }
+
+    setState(() {
+      _filteredBooks = temp;
+    });
   }
 
-  void _showAddBookDialog() {
-    final titleController = TextEditingController();
-    final authorController = TextEditingController();
-    final categoryController = TextEditingController();
+  void _toggleFavorite(Book book) {
+    setState(() {
+      book.isFavorite = !book.isFavorite;
+    });
+    _saveBooks();
+    _filterAndSortBooks();
+  }
 
+  void _updateRating(Book book, double rating) {
+    setState(() {
+      book.rating = rating;
+    });
+    _saveBooks();
+    _filterAndSortBooks();
+  }
+
+  void _showDeleteBookDialog(Book book) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E2024),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('নতুন বই যোগ করুন', style: TextStyle(color: Colors.white)),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleController,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  labelText: 'বইয়ের নাম *',
-                  labelStyle: TextStyle(color: Colors.white70),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: authorController,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  labelText: 'লেখক',
-                  labelStyle: TextStyle(color: Colors.white70),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: categoryController,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  labelText: 'ক্যাটাগরি (যেমন: উপন্যাস, দর্শন)',
-                  labelStyle: TextStyle(color: Colors.white70),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('বাতিল', style: TextStyle(color: Colors.white60)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00E676),
-              foregroundColor: Colors.black,
-            ),
-            onPressed: () {
-              if (titleController.text.trim().isEmpty) return;
-              setState(() {
-                books.add(
-                  BookItem(
-                    id: DateTime.now().millisecondsSinceEpoch.toString(),
-                    title: titleController.text.trim(),
-                    author: authorController.text.trim().isEmpty
-                        ? 'Unknown'
-                        : authorController.text.trim(),
-                    category: categoryController.text.trim().isEmpty
-                        ? 'General'
-                        : categoryController.text.trim(),
-                    notes: [],
-                  ),
-                );
-              });
-              _saveData();
-              Navigator.pop(ctx);
-            },
-            child: const Text('যোগ করুন', style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDeleteDialog(BookItem book) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E2024),
+        backgroundColor: const Color(0xFF181B19),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('বইটি মুছে ফেলতে চান?', style: TextStyle(color: Colors.white)),
         content: Text(
-          '\'${book.title}\' বইটি তালিকা থেকে স্থায়ীভাবে মুছে যাবে।',
+          '\'${book.title}\' বইটি এবং এর ভেতরের সকল নোট চিরতরে মুছে যাবে।',
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -261,9 +286,10 @@ class _HomeScreenState extends State<HomeScreen> {
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () {
               setState(() {
-                books.removeWhere((b) => b.id == book.id);
+                _books.removeWhere((b) => b.id == book.id);
+                _filterAndSortBooks();
               });
-              _saveData();
+              _saveBooks();
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('\'${book.title}\' মুছে ফেলা হয়েছে')),
@@ -276,96 +302,300 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _exportBackupFile() async {
+    try {
+      final jsonString = jsonEncode(_books.map((b) => b.toMap()).toList());
+      final directory = await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
+      final dateStr = DateTime.now().toIso8601String().substring(0, 10);
+      final file = File('${directory.path}/BookNotes_Backup_$dateStr.json');
+      await file.writeAsString(jsonString);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Backup saved: ${file.path}'),
+          backgroundColor: const Color(0xFF10B981),
+          action: SnackBarAction(
+            label: 'Share',
+            textColor: Colors.black,
+            onPressed: () => Share.shareXFiles([XFile(file.path)], text: 'My BookNotes Backup Data'),
+          ),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to export backup!'), backgroundColor: Colors.redAccent),
+      );
+    }
+  }
+
+  Future<void> _importBackupFile() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        final content = await file.readAsString();
+        final List decoded = jsonDecode(content);
+
+        setState(() {
+          _books = decoded.map((item) => Book.fromMap(item)).toList();
+          _filterAndSortBooks();
+        });
+        await _saveBooks();
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Data restored successfully!'), backgroundColor: Color(0xFF10B981)),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid backup file!'), backgroundColor: Colors.redAccent),
+      );
+    }
+  }
+
+  void _showAddOrEditBookDialog({Book? book}) {
+    final titleController = TextEditingController(text: book?.title ?? '');
+    final authorController = TextEditingController(text: book?.author ?? '');
+    final categoryController = TextEditingController(text: book?.category ?? '');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF181B19),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(left: 16, right: 16, top: 20, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              book == null ? '➕ Add Book' : '✏️ Edit Book',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF00E676)),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: titleController,
+              decoration: const InputDecoration(
+                labelText: 'Book Title *',
+                prefixIcon: Icon(Icons.book, color: Color(0xFF00E676)),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: authorController,
+              decoration: const InputDecoration(
+                labelText: 'Author Name',
+                prefixIcon: Icon(Icons.person_outline, color: Color(0xFF00E676)),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: categoryController,
+              decoration: const InputDecoration(
+                labelText: 'Category',
+                prefixIcon: Icon(Icons.category_outlined, color: Color(0xFF00E676)),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00E676),
+                foregroundColor: Colors.black,
+                minimumSize: const Size.fromHeight(48),
+              ),
+              onPressed: () {
+                if (titleController.text.trim().isEmpty) return;
+                if (book == null) {
+                  final newBook = Book(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    title: titleController.text.trim(),
+                    author: authorController.text.trim(),
+                    category: categoryController.text.trim(),
+                  );
+                  setState(() => _books.add(newBook));
+                } else {
+                  setState(() {
+                    book.title = titleController.text.trim();
+                    book.author = authorController.text.trim();
+                    book.category = categoryController.text.trim();
+                  });
+                }
+                _saveBooks();
+                _filterAndSortBooks();
+                Navigator.pop(ctx);
+              },
+              child: Text(book == null ? 'Save Book' : 'Update Book', style: const TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openSettingsDialog() {
+    final appState = BookNotesApp.of(context);
+    String selectedSort = appState.sortOrder;
+    double selectedFont = appState.fontSize;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF181B19),
+          title: const Row(
+            children: [
+              Icon(Icons.settings, color: Color(0xFF00E676)),
+              SizedBox(width: 8),
+              Text('Settings', style: TextStyle(color: Color(0xFF00E676))),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Sort Books By', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 6),
+              DropdownButton<String>(
+                value: selectedSort,
+                dropdownColor: const Color(0xFF181B19),
+                isExpanded: true,
+                items: const [
+                  DropdownMenuItem(value: 'newest', child: Text('Newest First')),
+                  DropdownMenuItem(value: 'oldest', child: Text('Oldest First')),
+                  DropdownMenuItem(value: 'az', child: Text('Name (A to Z)')),
+                  DropdownMenuItem(value: 'rating', child: Text('Highest Rated')),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setDialogState(() => selectedSort = val);
+                    appState.updateSettings(newSortOrder: val);
+                    _filterAndSortBooks();
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              const Text('Reading Font Size', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 6),
+              DropdownButton<double>(
+                value: selectedFont,
+                dropdownColor: const Color(0xFF181B19),
+                isExpanded: true,
+                items: const [
+                  DropdownMenuItem(value: 14.0, child: Text('Small (14px)')),
+                  DropdownMenuItem(value: 16.0, child: Text('Medium (16px)')),
+                  DropdownMenuItem(value: 18.0, child: Text('Large (18px)')),
+                  DropdownMenuItem(value: 20.0, child: Text('Extra Large (20px)')),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setDialogState(() => selectedFont = val);
+                    appState.updateSettings(newFontSize: val);
+                  }
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close', style: TextStyle(color: Color(0xFF00E676))),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showAboutDialog() {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return Dialog(
-          backgroundColor: const Color(0xFF1E2024),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'About BookNote',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'A personal reading companion designed to effortlessly organize your books, track reading progress, and preserve thoughts.',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF9E9E9E), height: 1.4),
-                ),
-                const SizedBox(height: 16),
-                const Divider(color: Color(0xFF2E3238), thickness: 1),
-                const SizedBox(height: 12),
-                RichText(
-                  text: const TextSpan(
-                    text: 'Developer: ',
-                    style: TextStyle(fontSize: 14, color: Colors.white70),
-                    children: [
-                      TextSpan(
-                        text: 'AHM',
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  height: 44,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1877F2).withOpacity(0.2),
-                      foregroundColor: const Color(0xFF4C9EEB),
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+      builder: (ctx) => Dialog(
+        backgroundColor: const Color(0xFF181B19),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'About BookNote',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+              const SizedBox(height: 8),
+              const Text('Version: 1.0.0', style: TextStyle(color: Colors.grey, fontSize: 13)),
+              const SizedBox(height: 12),
+              RichText(
+                text: const TextSpan(
+                  text: 'Developer: ',
+                  style: TextStyle(fontSize: 14, color: Colors.white70),
+                  children: [
+                    TextSpan(
+                      text: 'AHM',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00E676)),
                     ),
-                    icon: const Icon(Icons.facebook, size: 20, color: Color(0xFF4C9EEB)),
-                    label: const Text(
-                      'Follow Facebook Page',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                    ),
-                    onPressed: () async {
-                      final Uri url = Uri.parse('https://www.facebook.com/ahm.79316');
-                      if (await canLaunchUrl(url)) {
-                        await launchUrl(url, mode: LaunchMode.externalApplication);
-                      }
-                    },
-                  ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text(
-                      'Close',
-                      style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold),
-                    ),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1877F2).withOpacity(0.2),
+                    foregroundColor: const Color(0xFF4C9EEB),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
+                  icon: const Icon(Icons.facebook, size: 20, color: Color(0xFF4C9EEB)),
+                  label: const Text(
+                    'Follow Facebook Page',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                  ),
+                  onPressed: () async {
+                    final Uri url = Uri.parse('https://www.facebook.com/profile.php?id=61581691871822');
+                    if (await canLaunchUrl(url)) {
+                      await launchUrl(url, mode: LaunchMode.externalApplication);
+                    }
+                  },
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 16),
+              const Divider(color: Colors.white24),
+              const SizedBox(height: 8),
+              const Text(
+                '"People change, time fades, but the memories and thoughts left on the pages of a book stay forever. Designed to be your quiet companion on every reading journey."',
+                style: TextStyle(fontStyle: FontStyle.italic, color: Color(0xFFB0BEC5), fontSize: 12, height: 1.4),
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close', style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final displayList = _filteredBooks;
-
     return Scaffold(
       appBar: AppBar(
         title: _isSearching
@@ -374,23 +604,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 autofocus: true,
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
-                  hintText: 'Search title, author...',
+                  hintText: 'Search title, author, category...',
                   hintStyle: TextStyle(color: Colors.white38),
                   border: InputBorder.none,
                 ),
-                onChanged: (val) => setState(() {}),
               )
-            : const Text(
-                'BookNote',
-                style: TextStyle(
-                  color: Color(0xFF00E676),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 22,
-                ),
-              ),
+            : const Text('BookNote'),
         actions: [
           IconButton(
             icon: Icon(_isSearching ? Icons.close : Icons.search),
+            tooltip: _isSearching ? 'Close Search' : 'Search',
             onPressed: () {
               setState(() {
                 if (_isSearching) {
@@ -402,32 +625,50 @@ class _HomeScreenState extends State<HomeScreen> {
               });
             },
           ),
+          IconButton(
+            icon: Icon(
+              _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
+              color: _showOnlyFavorites ? Colors.redAccent : const Color(0xFF00E676),
+            ),
+            tooltip: 'Filter Favorites',
+            onPressed: () {
+              setState(() {
+                _showOnlyFavorites = !_showOnlyFavorites;
+                _filterAndSortBooks();
+              });
+            },
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) {
+              if (value == 'settings') _openSettingsDialog();
+              if (value == 'export') _exportBackupFile();
+              if (value == 'import') _importBackupFile();
               if (value == 'about') _showAboutDialog();
             },
-            itemBuilder: (BuildContext context) => [
-              const PopupMenuItem(value: 'about', child: Text('About')),
+            itemBuilder: (ctx) => [
+              const PopupMenuItem(value: 'settings', child: Row(children: [Icon(Icons.settings_outlined, color: Color(0xFF00E676)), SizedBox(width: 8), Text('Settings')])),
+              const PopupMenuItem(value: 'export', child: Row(children: [Icon(Icons.file_upload_outlined, color: Color(0xFF00E676)), SizedBox(width: 8), Text('Backup (File)')])),
+              const PopupMenuItem(value: 'import', child: Row(children: [Icon(Icons.file_download_outlined, color: Colors.blueAccent), SizedBox(width: 8), Text('Restore (File)')])),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 'about', child: Row(children: [Icon(Icons.info_outline, color: Colors.grey), SizedBox(width: 8), Text('About App')])),
             ],
           ),
         ],
       ),
-      body: displayList.isEmpty
+      body: _filteredBooks.isEmpty
           ? Center(
               child: Text(
-                _isSearching ? 'কোনো বই পাওয়া যায়নি' : 'কোনো বই যোগ করা হয়নি\nনিচের + বাটনে চাপ দিন',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white38, fontSize: 16),
+                _isSearching ? 'No matching books found.' : 'No books found. Tap + to add.',
+                style: const TextStyle(color: Colors.grey),
               ),
             )
           : ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: displayList.length,
-              itemBuilder: (context, index) {
-                final book = displayList[index];
+              itemCount: _filteredBooks.length,
+              itemBuilder: (ctx, index) {
+                final item = _filteredBooks[index];
                 return Card(
-                  color: const Color(0xFF1E2024),
+                  color: const Color(0xFF181B19),
                   margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   child: InkWell(
@@ -435,50 +676,70 @@ class _HomeScreenState extends State<HomeScreen> {
                     onTap: () async {
                       await Navigator.push(
                         context,
-                        MaterialPageRoute(
-                          builder: (ctx) => BookDetailScreen(book: book),
-                        ),
+                        MaterialPageRoute(builder: (context) => BookNotesScreen(book: item)),
                       );
-                      _saveData();
-                      setState(() {});
+                      _saveBooks();
+                      _filterAndSortBooks();
                     },
-                    onLongPress: () => _showDeleteDialog(book),
+                    onLongPress: () => _showDeleteBookDialog(item),
                     child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Row(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          CircleAvatar(
-                            backgroundColor: const Color(0xFF00E676),
-                            child: Text(
-                              '${index + 1}',
-                              style: const TextStyle(
-                                  color: Colors.black, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  book.title,
-                                  style: const TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: const Color(0xFF00E676),
+                                foregroundColor: Colors.black,
+                                radius: 18,
+                                child: Text('${index + 1}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(item.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${item.author.isEmpty ? "Unknown" : item.author} • ${item.category.isEmpty ? "General" : item.category}',
+                                      style: const TextStyle(color: Colors.grey, fontSize: 13),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${book.author} • ${book.category}',
-                                  style: const TextStyle(fontSize: 13, color: Colors.white54),
+                              ),
+                              IconButton(
+                                icon: Icon(
+                                  item.isFavorite ? Icons.favorite : Icons.favorite_border,
+                                  color: item.isFavorite ? Colors.redAccent : Colors.grey,
                                 ),
-                              ],
-                            ),
+                                onPressed: () => _toggleFavorite(item),
+                              ),
+                            ],
                           ),
-                          Text(
-                            '${book.notes.length} notes',
-                            style: const TextStyle(fontSize: 12, color: Colors.white38),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: List.generate(5, (starIdx) {
+                                  return GestureDetector(
+                                    onTap: () => _updateRating(item, (starIdx + 1).toDouble()),
+                                    child: Icon(
+                                      starIdx < item.rating ? Icons.star : Icons.star_border,
+                                      color: const Color(0xFF00E676),
+                                      size: 20,
+                                    ),
+                                  );
+                                }),
+                              ),
+                              Text(
+                                '${item.notes.length} notes',
+                                style: const TextStyle(color: Color(0xFF00E676), fontSize: 12, fontWeight: FontWeight.bold),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -490,68 +751,59 @@ class _HomeScreenState extends State<HomeScreen> {
       floatingActionButton: FloatingActionButton(
         backgroundColor: const Color(0xFF00E676),
         foregroundColor: Colors.black,
-        onPressed: _showAddBookDialog,
+        onPressed: () => _showAddOrEditBookDialog(),
         child: const Icon(Icons.add),
       ),
     );
   }
 }
 
-class BookDetailScreen extends StatefulWidget {
-  final BookItem book;
-  const BookDetailScreen({super.key, required this.book});
+class BookNotesScreen extends StatefulWidget {
+  final Book book;
+  const BookNotesScreen({super.key, required this.book});
 
   @override
-  State<BookDetailScreen> createState() => _BookDetailScreenState();
+  State<BookNotesScreen> createState() => _BookNotesScreenState();
 }
 
-class _BookDetailScreenState extends State<BookDetailScreen> {
-  void _addNoteDialog() {
-    final noteController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E2024),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('নতুন নোট লিখুন', style: TextStyle(color: Colors.white)),
-        content: TextField(
-          controller: noteController,
-          maxLines: 4,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            hintText: 'আপনার চিন্তা বা বইয়ের অংশবিশেষ লিখুন...',
-            hintStyle: TextStyle(color: Colors.white38),
-            border: OutlineInputBorder(),
-          ),
+class _BookNotesScreenState extends State<BookNotesScreen> {
+  void _openNoteViewer(NoteItem note) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => NoteDetailScreen(
+          bookTitle: widget.book.title,
+          note: note,
+          onDelete: () {
+            setState(() {
+              widget.book.notes.removeWhere((n) => n.id == note.id);
+            });
+            Navigator.pop(ctx);
+          },
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('বাতিল', style: TextStyle(color: Colors.white60)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00E676),
-              foregroundColor: Colors.black,
-            ),
-            onPressed: () {
-              if (noteController.text.trim().isEmpty) return;
-              setState(() {
-                widget.book.notes.add(
-                  NoteItem(
-                    id: DateTime.now().millisecondsSinceEpoch.toString(),
-                    content: noteController.text.trim(),
-                    createdAt: DateTime.now().toString().substring(0, 10),
-                  ),
-                );
-              });
-              Navigator.pop(ctx);
-            },
-            child: const Text('সংরক্ষণ', style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-        ],
       ),
     );
+    setState(() {});
+  }
+
+  void _addNewNote() async {
+    final defaultTitle = 'Note ${widget.book.notes.length + 1}';
+    final result = await Navigator.push<NoteItem>(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => NoteEditorScreen(
+          pageTitle: 'Add Note',
+          initialTitle: defaultTitle,
+          initialContent: '',
+        ),
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        widget.book.notes.add(result);
+      });
+    }
   }
 
   @override
@@ -560,87 +812,311 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
       appBar: AppBar(
         title: Text(widget.book.title),
       ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            color: const Color(0xFF1E2024),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.book.title,
-                  style: const TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'লেখক: ${widget.book.author}',
-                  style: const TextStyle(color: Colors.white70, fontSize: 14),
-                ),
-                Text(
-                  'ক্যাটাগরি: ${widget.book.category}',
-                  style: const TextStyle(color: Colors.white54, fontSize: 13),
-                ),
-              ],
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text(
-              'নোটসমূহ (Notes)',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF00E676),
+      body: widget.book.notes.isEmpty
+          ? const Center(
+              child: Text(
+                'No notes yet. Tap + to add thoughts, quotes or summaries.',
+                style: TextStyle(color: Colors.grey),
+                textAlign: TextAlign.center,
               ),
-            ),
-          ),
-          Expanded(
-            child: widget.book.notes.isEmpty
-                ? const Center(
-                    child: Text(
-                      'এখনও কোনো নোট নেই। নিচে + বাটনে ট্যাপ করুন।',
-                      style: TextStyle(color: Colors.white38),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(12),
+              itemCount: widget.book.notes.length,
+              itemBuilder: (ctx, idx) {
+                final note = widget.book.notes[idx];
+                final timeLabel = formatTimestamp(note.updatedAt);
+                return Card(
+                  color: const Color(0xFF181B19),
+                  margin: const EdgeInsets.symmetric(vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  child: ListTile(
+                    leading: const Icon(Icons.edit_note, color: Color(0xFF00E676), size: 28),
+                    title: Text(note.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (note.content.isNotEmpty)
+                          Text(
+                            note.content,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.white70, fontSize: 13),
+                          ),
+                        if (timeLabel.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text(timeLabel, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                        ],
+                      ],
                     ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                    itemCount: widget.book.notes.length,
-                    itemBuilder: (ctx, i) {
-                      final n = widget.book.notes[i];
-                      return Card(
-                        color: const Color(0xFF1E2024),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        child: ListTile(
-                          title: Text(n.content, style: const TextStyle(color: Colors.white)),
-                          subtitle: Text(
-                            n.createdAt,
-                            style: const TextStyle(color: Colors.white38, fontSize: 11),
-                          ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                            onPressed: () {
-                              setState(() {
-                                widget.book.notes.removeAt(i);
-                              });
-                            },
-                          ),
-                        ),
-                      );
-                    },
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                    onTap: () => _openNoteViewer(note),
                   ),
-          ),
-        ],
-      ),
+                );
+              },
+            ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: const Color(0xFF00E676),
         foregroundColor: Colors.black,
-        onPressed: _addNoteDialog,
-        child: const Icon(Icons.edit),
+        onPressed: _addNewNote,
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+class NoteDetailScreen extends StatefulWidget {
+  final String bookTitle;
+  final NoteItem note;
+  final VoidCallback onDelete;
+
+  const NoteDetailScreen({
+    super.key,
+    required this.bookTitle,
+    required this.note,
+    required this.onDelete,
+  });
+
+  @override
+  State<NoteDetailScreen> createState() => _NoteDetailScreenState();
+}
+
+class _NoteDetailScreenState extends State<NoteDetailScreen> {
+  void _editNote() async {
+    final updated = await Navigator.push<NoteItem>(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => NoteEditorScreen(
+          pageTitle: 'Edit Note',
+          initialTitle: widget.note.title,
+          initialContent: widget.note.content,
+        ),
+      ),
+    );
+
+    if (updated != null) {
+      setState(() {
+        widget.note.title = updated.title;
+        widget.note.content = updated.content;
+        widget.note.updatedAt = updated.updatedAt;
+      });
+    }
+  }
+
+  void _confirmDelete() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF181B19),
+        title: const Text('Delete Note'),
+        content: const Text('Are you sure you want to delete this note?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () {
+              Navigator.pop(ctx);
+              widget.onDelete();
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentFontSize = BookNotesApp.of(context).fontSize;
+    final timeLabel = formatTimestamp(widget.note.updatedAt);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.note.title),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.copy),
+            tooltip: 'Copy Note',
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: '${widget.note.title}\n\n${widget.note.content}'));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Note copied to clipboard!')),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.share),
+            tooltip: 'Share Note',
+            onPressed: () {
+              Share.share('${widget.note.title}\nBook: ${widget.bookTitle}\n\n${widget.note.content}');
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.edit),
+            tooltip: 'Edit Note',
+            onPressed: _editNote,
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+            tooltip: 'Delete Note',
+            onPressed: _confirmDelete,
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(18.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.note.title,
+              style: TextStyle(fontSize: currentFontSize + 6, fontWeight: FontWeight.bold, color: const Color(0xFF00E676)),
+            ),
+            if (timeLabel.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.access_time, size: 14, color: Colors.grey),
+                  const SizedBox(width: 4),
+                  Text('Last edited: $timeLabel', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
+            ],
+            const SizedBox(height: 16),
+            Text(
+              widget.note.content.isEmpty ? 'No text in this note.' : widget.note.content,
+              style: TextStyle(fontSize: currentFontSize, height: 1.6, color: const Color(0xFFE0E0E0)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class NoteEditorScreen extends StatefulWidget {
+  final String pageTitle;
+  final String initialTitle;
+  final String initialContent;
+
+  const NoteEditorScreen({
+    super.key,
+    required this.pageTitle,
+    required this.initialTitle,
+    required this.initialContent,
+  });
+
+  @override
+  State<NoteEditorScreen> createState() => _NoteEditorScreenState();
+}
+
+class _NoteEditorScreenState extends State<NoteEditorScreen> with WidgetsBindingObserver {
+  late TextEditingController _titleController;
+  late TextEditingController _contentController;
+  bool _isSaved = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _titleController = TextEditingController(text: widget.initialTitle);
+    _contentController = TextEditingController(text: widget.initialContent);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _titleController.dispose();
+    _contentController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _saveAndExit(closeScreen: false);
+    }
+  }
+
+  void _saveAndExit({bool closeScreen = true}) {
+    if (_isSaved && closeScreen) return;
+
+    final title = _titleController.text.trim().isEmpty 
+        ? widget.initialTitle 
+        : _titleController.text.trim();
+    final content = _contentController.text.trim();
+
+    if (title.isEmpty && content.isEmpty) {
+      if (closeScreen) Navigator.pop(context, null);
+      return;
+    }
+
+    final result = NoteItem(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: title,
+      content: content,
+      updatedAt: DateTime.now().toIso8601String(),
+    );
+
+    if (closeScreen) {
+      _isSaved = true;
+      Navigator.pop(context, result);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentFontSize = BookNotesApp.of(context).fontSize;
+
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        _saveAndExit(closeScreen: true);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => _saveAndExit(closeScreen: true),
+          ),
+          title: Text(widget.pageTitle),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.check, size: 28, color: Color(0xFF00E676)),
+              tooltip: 'Save & Exit',
+              onPressed: () => _saveAndExit(closeScreen: true),
+            ),
+          ],
+        ),
+        body: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              TextField(
+                controller: _titleController,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF00E676)),
+                decoration: const InputDecoration(
+                  hintText: 'Note Subject / Title',
+                  border: UnderlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: TextField(
+                  controller: _contentController,
+                  maxLines: null,
+                  expands: true,
+                  style: TextStyle(fontSize: currentFontSize, height: 1.5),
+                  decoration: const InputDecoration(
+                    hintText: 'Start writing your thoughts, notes or quotes...',
+                    border: InputBorder.none,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
