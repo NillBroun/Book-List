@@ -195,6 +195,7 @@ class _BookListScreenState extends State<BookListScreen> {
   List<Book> _books = [];
   List<Book> _filteredBooks = [];
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   bool _showOnlyFavorites = false;
   bool _isSearching = false;
 
@@ -203,6 +204,13 @@ class _BookListScreenState extends State<BookListScreen> {
     super.initState();
     _loadBooks();
     _searchController.addListener(_filterAndSortBooks);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
   }
 
   Future<void> _loadBooks() async {
@@ -224,13 +232,17 @@ class _BookListScreenState extends State<BookListScreen> {
   }
 
   void _filterAndSortBooks() {
-    final query = _searchController.text.toLowerCase();
+    final query = _searchController.text.toLowerCase().trim();
     final sort = BookNotesApp.of(context).sortOrder;
 
     List<Book> temp = _books.where((book) {
-      final matchesQuery = book.title.toLowerCase().contains(query) ||
+      final matchesQuery = query.isEmpty ||
+          book.title.toLowerCase().contains(query) ||
           book.author.toLowerCase().contains(query) ||
-          book.category.toLowerCase().contains(query);
+          book.category.toLowerCase().contains(query) ||
+          book.notes.any((n) =>
+              n.title.toLowerCase().contains(query) ||
+              n.content.toLowerCase().contains(query));
       final matchesFavorite = _showOnlyFavorites ? book.isFavorite : true;
       return matchesQuery && matchesFavorite;
     }).toList();
@@ -272,15 +284,15 @@ class _BookListScreenState extends State<BookListScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF181B19),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('বইটি মুছে ফেলতে চান?', style: TextStyle(color: Colors.white)),
+        title: const Text('Delete Book?', style: TextStyle(color: Colors.white)),
         content: Text(
-          '\'${book.title}\' বইটি এবং এর ভেতরের সকল নোট চিরতরে মুছে যাবে।',
+          '\'${book.title}\' and all of its notes will be permanently deleted.',
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('বাতিল', style: TextStyle(color: Colors.white60)),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
@@ -292,10 +304,10 @@ class _BookListScreenState extends State<BookListScreen> {
               _saveBooks();
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('\'${book.title}\' মুছে ফেলা হয়েছে')),
+                SnackBar(content: Text('\'${book.title}\' deleted successfully')),
               );
             },
-            child: const Text('ডিলিট', style: TextStyle(color: Colors.white)),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -307,7 +319,7 @@ class _BookListScreenState extends State<BookListScreen> {
       final jsonString = jsonEncode(_books.map((b) => b.toMap()).toList());
       final directory = await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
       final dateStr = DateTime.now().toIso8601String().substring(0, 10);
-      final file = File('${directory.path}/BookNotes_Backup_$dateStr.json');
+      final file = File('${directory.path}/BookNote_Backup_$dateStr.json');
       await file.writeAsString(jsonString);
 
       if (!mounted) return;
@@ -318,7 +330,7 @@ class _BookListScreenState extends State<BookListScreen> {
           action: SnackBarAction(
             label: 'Share',
             textColor: Colors.black,
-            onPressed: () => Share.shareXFiles([XFile(file.path)], text: 'My BookNotes Backup Data'),
+            onPressed: () => Share.shareXFiles([XFile(file.path)], text: 'My BookNote Backup Data'),
           ),
         ),
       );
@@ -464,6 +476,26 @@ class _BookListScreenState extends State<BookListScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              const Text('Reading Font Size', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 6),
+              DropdownButton<double>(
+                value: selectedFont,
+                dropdownColor: const Color(0xFF181B19),
+                isExpanded: true,
+                items: const [
+                  DropdownMenuItem(value: 14.0, child: Text('Small (14px)')),
+                  DropdownMenuItem(value: 16.0, child: Text('Medium (16px)')),
+                  DropdownMenuItem(value: 18.0, child: Text('Large (18px)')),
+                  DropdownMenuItem(value: 20.0, child: Text('Extra Large (20px)')),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setDialogState(() => selectedFont = val);
+                    appState.updateSettings(newFontSize: val);
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
               const Text('Sort Books By', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
               const SizedBox(height: 6),
               DropdownButton<String>(
@@ -481,26 +513,6 @@ class _BookListScreenState extends State<BookListScreen> {
                     setDialogState(() => selectedSort = val);
                     appState.updateSettings(newSortOrder: val);
                     _filterAndSortBooks();
-                  }
-                },
-              ),
-              const SizedBox(height: 16),
-              const Text('Reading Font Size', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-              const SizedBox(height: 6),
-              DropdownButton<double>(
-                value: selectedFont,
-                dropdownColor: const Color(0xFF181B19),
-                isExpanded: true,
-                items: const [
-                  DropdownMenuItem(value: 14.0, child: Text('Small (14px)')),
-                  DropdownMenuItem(value: 16.0, child: Text('Medium (16px)')),
-                  DropdownMenuItem(value: 18.0, child: Text('Large (18px)')),
-                  DropdownMenuItem(value: 20.0, child: Text('Extra Large (20px)')),
-                ],
-                onChanged: (val) {
-                  if (val != null) {
-                    setDialogState(() => selectedFont = val);
-                    appState.updateSettings(newFontSize: val);
                   }
                 },
               ),
@@ -601,36 +613,34 @@ class _BookListScreenState extends State<BookListScreen> {
         title: _isSearching
             ? TextField(
                 controller: _searchController,
+                focusNode: _searchFocusNode,
                 autofocus: true,
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
-                  hintText: 'Search title, author, category...',
+                  hintText: 'Find in books & notes...',
                   hintStyle: TextStyle(color: Colors.white38),
                   border: InputBorder.none,
                 ),
               )
             : const Text('BookNote'),
         actions: [
-          IconButton(
-            icon: Icon(_isSearching ? Icons.close : Icons.search),
-            tooltip: _isSearching ? 'Close Search' : 'Search',
-            onPressed: () {
-              setState(() {
-                if (_isSearching) {
+          if (_isSearching)
+            IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: 'Close Search',
+              onPressed: () {
+                setState(() {
                   _isSearching = false;
                   _searchController.clear();
-                } else {
-                  _isSearching = true;
-                }
-              });
-            },
-          ),
+                });
+              },
+            ),
           IconButton(
             icon: Icon(
               _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
               color: _showOnlyFavorites ? Colors.redAccent : const Color(0xFF00E676),
             ),
-            tooltip: 'Filter Favorites',
+            tooltip: 'Favorites',
             onPressed: () {
               setState(() {
                 _showOnlyFavorites = !_showOnlyFavorites;
@@ -638,20 +648,77 @@ class _BookListScreenState extends State<BookListScreen> {
               });
             },
           ),
+          // 👇 এখানে ৩-ডটের বদলে সরাসরি Settings আইকন সেট করা হয়েছে 👇
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
+            icon: const Icon(Icons.settings),
+            tooltip: 'Settings',
             onSelected: (value) {
+              if (value == 'find') {
+                setState(() {
+                  _isSearching = true;
+                });
+                Future.delayed(const Duration(milliseconds: 100), () {
+                  _searchFocusNode.requestFocus();
+                });
+              }
               if (value == 'settings') _openSettingsDialog();
               if (value == 'export') _exportBackupFile();
               if (value == 'import') _importBackupFile();
               if (value == 'about') _showAboutDialog();
             },
             itemBuilder: (ctx) => [
-              const PopupMenuItem(value: 'settings', child: Row(children: [Icon(Icons.settings_outlined, color: Color(0xFF00E676)), SizedBox(width: 8), Text('Settings')])),
-              const PopupMenuItem(value: 'export', child: Row(children: [Icon(Icons.file_upload_outlined, color: Color(0xFF00E676)), SizedBox(width: 8), Text('Backup (File)')])),
-              const PopupMenuItem(value: 'import', child: Row(children: [Icon(Icons.file_download_outlined, color: Colors.blueAccent), SizedBox(width: 8), Text('Restore (File)')])),
+              const PopupMenuItem(
+                value: 'find',
+                child: Row(
+                  children: [
+                    Icon(Icons.search, color: Color(0xFF00E676)),
+                    SizedBox(width: 10),
+                    Text('Find'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'settings',
+                child: Row(
+                  children: [
+                    Icon(Icons.tune, color: Color(0xFF00E676)),
+                    SizedBox(width: 10),
+                    Text('Preferences (Font & Sort)'),
+                  ],
+                ),
+              ),
               const PopupMenuDivider(),
-              const PopupMenuItem(value: 'about', child: Row(children: [Icon(Icons.info_outline, color: Colors.grey), SizedBox(width: 8), Text('About App')])),
+              const PopupMenuItem(
+                value: 'export',
+                child: Row(
+                  children: [
+                    Icon(Icons.file_upload_outlined, color: Color(0xFF00E676)),
+                    SizedBox(width: 10),
+                    Text('Backup (File)'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'import',
+                child: Row(
+                  children: [
+                    Icon(Icons.file_download_outlined, color: Colors.blueAccent),
+                    SizedBox(width: 10),
+                    Text('Restore (File)'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'about',
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.grey),
+                    SizedBox(width: 10),
+                    Text('About App'),
+                  ],
+                ),
+              ),
             ],
           ),
         ],
@@ -659,7 +726,7 @@ class _BookListScreenState extends State<BookListScreen> {
       body: _filteredBooks.isEmpty
           ? Center(
               child: Text(
-                _isSearching ? 'No matching books found.' : 'No books found. Tap + to add.',
+                _isSearching ? 'No matching books or notes found.' : 'No books found. Tap + to add.',
                 style: const TextStyle(color: Colors.grey),
               ),
             )
