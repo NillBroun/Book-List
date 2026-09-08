@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const BookNoteApp());
 }
 
@@ -17,8 +20,12 @@ class BookNoteApp extends StatelessWidget {
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF121212),
         primaryColor: const Color(0xFF00E676),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF00E676),
+          surface: Color(0xFF1E2024),
+        ),
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF1E1E1E),
+          backgroundColor: Color(0xFF1A1C1E),
           elevation: 0,
         ),
       ),
@@ -27,20 +34,67 @@ class BookNoteApp extends StatelessWidget {
   }
 }
 
-class Book {
-  final String id;
-  final String title;
-  final String author;
-  final String category;
-  final int notesCount;
+class NoteItem {
+  String id;
+  String content;
+  String createdAt;
 
-  Book({
+  NoteItem({
+    required this.id,
+    required this.content,
+    required this.createdAt,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'content': content,
+        'createdAt': createdAt,
+      };
+
+  factory NoteItem.fromJson(Map<String, dynamic> json) => NoteItem(
+        id: json['id'] ?? '',
+        content: json['content'] ?? '',
+        createdAt: json['createdAt'] ?? '',
+      );
+}
+
+class BookItem {
+  String id;
+  String title;
+  String author;
+  String category;
+  int rating;
+  List<NoteItem> notes;
+
+  BookItem({
     required this.id,
     required this.title,
     required this.author,
     required this.category,
-    required this.notesCount,
+    this.rating = 0,
+    required this.notes,
   });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'author': author,
+        'category': category,
+        'rating': rating,
+        'notes': notes.map((n) => n.toJson()).toList(),
+      };
+
+  factory BookItem.fromJson(Map<String, dynamic> json) => BookItem(
+        id: json['id'] ?? '',
+        title: json['title'] ?? '',
+        author: json['author'] ?? 'Unknown',
+        category: json['category'] ?? 'General',
+        rating: json['rating'] ?? 0,
+        notes: (json['notes'] as List<dynamic>?)
+                ?.map((n) => NoteItem.fromJson(n))
+                .toList() ??
+            [],
+      );
 }
 
 class HomeScreen extends StatefulWidget {
@@ -51,16 +105,53 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  List<BookItem> books = [];
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
 
-  List<Book> books = [
-    Book(id: '1', title: 'পরকবন', author: 'Unknown', category: 'General', notesCount: 2),
-    Book(id: '2', title: 'The Secret', author: 'Rhonda Byrne', category: 'Self-help', notesCount: 5),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
 
-  List<Book> get _filteredBooks {
-    if (_searchController.text.isEmpty) return books;
+  Future<void> _loadData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? raw = prefs.getString('saved_books');
+    if (raw != null) {
+      final List<dynamic> decoded = jsonDecode(raw);
+      setState(() {
+        books = decoded.map((b) => BookItem.fromJson(b)).toList();
+      });
+    } else {
+      // প্রাথমিক ডেমো বই
+      books = [
+        BookItem(
+          id: '1',
+          title: 'পরকবন',
+          author: 'Unknown',
+          category: 'General',
+          rating: 4,
+          notes: [
+            NoteItem(
+                id: 'n1',
+                content: 'বইটির সূচনা অনেক আকর্ষণীয় ছিল।',
+                createdAt: 'Today'),
+          ],
+        ),
+      ];
+      _saveData();
+    }
+  }
+
+  Future<void> _saveData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String encoded = jsonEncode(books.map((b) => b.toJson()).toList());
+    await prefs.setString('saved_books', encoded);
+  }
+
+  List<BookItem> get _filteredBooks {
+    if (_searchController.text.trim().isEmpty) return books;
     final query = _searchController.text.toLowerCase();
     return books.where((book) {
       return book.title.toLowerCase().contains(query) ||
@@ -69,7 +160,88 @@ class _HomeScreenState extends State<HomeScreen> {
     }).toList();
   }
 
-  void _showDeleteDialog(Book book) {
+  void _showAddBookDialog() {
+    final titleController = TextEditingController();
+    final authorController = TextEditingController();
+    final categoryController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E2024),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('নতুন বই যোগ করুন', style: TextStyle(color: Colors.white)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'বইয়ের নাম *',
+                  labelStyle: TextStyle(color: Colors.white70),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: authorController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'লেখক',
+                  labelStyle: TextStyle(color: Colors.white70),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: categoryController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'ক্যাটাগরি (যেমন: উপন্যাস, দর্শন)',
+                  labelStyle: TextStyle(color: Colors.white70),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('বাতিল', style: TextStyle(color: Colors.white60)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00E676),
+              foregroundColor: Colors.black,
+            ),
+            onPressed: () {
+              if (titleController.text.trim().isEmpty) return;
+              setState(() {
+                books.add(
+                  BookItem(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    title: titleController.text.trim(),
+                    author: authorController.text.trim().isEmpty
+                        ? 'Unknown'
+                        : authorController.text.trim(),
+                    category: categoryController.text.trim().isEmpty
+                        ? 'General'
+                        : categoryController.text.trim(),
+                    notes: [],
+                  ),
+                );
+              });
+              _saveData();
+              Navigator.pop(ctx);
+            },
+            child: const Text('যোগ করুন', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteDialog(BookItem book) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -91,6 +263,7 @@ class _HomeScreenState extends State<HomeScreen> {
               setState(() {
                 books.removeWhere((b) => b.id == book.id);
               });
+              _saveData();
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('\'${book.title}\' মুছে ফেলা হয়েছে')),
@@ -191,6 +364,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final displayList = _filteredBooks;
+
     return Scaffold(
       appBar: AppBar(
         title: _isSearching
@@ -238,65 +413,234 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: ListView.builder(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: _filteredBooks.length,
-        itemBuilder: (context, index) {
-          final book = _filteredBooks[index];
-          return Card(
-            color: const Color(0xFF1E2024),
-            margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () {
-                // বইয়ের বিস্তারিত পেজে যাওয়ার লজিক
-              },
-              onLongPress: () => _showDeleteDialog(book),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      backgroundColor: const Color(0xFF00E676),
-                      child: Text('${index + 1}',
-                          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+      body: displayList.isEmpty
+          ? Center(
+              child: Text(
+                _isSearching ? 'কোনো বই পাওয়া যায়নি' : 'কোনো বই যোগ করা হয়নি\nনিচের + বাটনে চাপ দিন',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white38, fontSize: 16),
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: displayList.length,
+              itemBuilder: (context, index) {
+                final book = displayList[index];
+                return Card(
+                  color: const Color(0xFF1E2024),
+                  margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (ctx) => BookDetailScreen(book: book),
+                        ),
+                      );
+                      _saveData();
+                      setState(() {});
+                    },
+                    onLongPress: () => _showDeleteDialog(book),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
                         children: [
-                          Text(
-                            book.title,
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
+                          CircleAvatar(
+                            backgroundColor: const Color(0xFF00E676),
+                            child: Text(
+                              '${index + 1}',
+                              style: const TextStyle(
+                                  color: Colors.black, fontWeight: FontWeight.bold),
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  book.title,
+                                  style: const TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${book.author} • ${book.category}',
+                                  style: const TextStyle(fontSize: 13, color: Colors.white54),
+                                ),
+                              ],
+                            ),
+                          ),
                           Text(
-                            '${book.author} • ${book.category}',
-                            style: const TextStyle(fontSize: 13, color: Colors.white54),
+                            '${book.notes.length} notes',
+                            style: const TextStyle(fontSize: 12, color: Colors.white38),
                           ),
                         ],
                       ),
                     ),
-                    Text('${book.notesCount} notes',
-                        style: const TextStyle(fontSize: 12, color: Colors.white38)),
-                  ],
+                  ),
+                );
+              },
+            ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: const Color(0xFF00E676),
+        foregroundColor: Colors.black,
+        onPressed: _showAddBookDialog,
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+class BookDetailScreen extends StatefulWidget {
+  final BookItem book;
+  const BookDetailScreen({super.key, required this.book});
+
+  @override
+  State<BookDetailScreen> createState() => _BookDetailScreenState();
+}
+
+class _BookDetailScreenState extends State<BookDetailScreen> {
+  void _addNoteDialog() {
+    final noteController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E2024),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('নতুন নোট লিখুন', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: noteController,
+          maxLines: 4,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'আপনার চিন্তা বা বইয়ের অংশবিশেষ লিখুন...',
+            hintStyle: TextStyle(color: Colors.white38),
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('বাতিল', style: TextStyle(color: Colors.white60)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00E676),
+              foregroundColor: Colors.black,
+            ),
+            onPressed: () {
+              if (noteController.text.trim().isEmpty) return;
+              setState(() {
+                widget.book.notes.add(
+                  NoteItem(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    content: noteController.text.trim(),
+                    createdAt: DateTime.now().toString().substring(0, 10),
+                  ),
+                );
+              });
+              Navigator.pop(ctx);
+            },
+            child: const Text('সংরক্ষণ', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.book.title),
+      ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            color: const Color(0xFF1E2024),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.book.title,
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
+                const SizedBox(height: 6),
+                Text(
+                  'লেখক: ${widget.book.author}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+                Text(
+                  'ক্যাটাগরি: ${widget.book.category}',
+                  style: const TextStyle(color: Colors.white54, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              'নোটসমূহ (Notes)',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF00E676),
               ),
             ),
-          );
-        },
+          ),
+          Expanded(
+            child: widget.book.notes.isEmpty
+                ? const Center(
+                    child: Text(
+                      'এখনও কোনো নোট নেই। নিচে + বাটনে ট্যাপ করুন।',
+                      style: TextStyle(color: Colors.white38),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                    itemCount: widget.book.notes.length,
+                    itemBuilder: (ctx, i) {
+                      final n = widget.book.notes[i];
+                      return Card(
+                        color: const Color(0xFF1E2024),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                        child: ListTile(
+                          title: Text(n.content, style: const TextStyle(color: Colors.white)),
+                          subtitle: Text(
+                            n.createdAt,
+                            style: const TextStyle(color: Colors.white38, fontSize: 11),
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                            onPressed: () {
+                              setState(() {
+                                widget.book.notes.removeAt(i);
+                              });
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: const Color(0xFF00E676),
         foregroundColor: Colors.black,
-        onPressed: () {},
-        child: const Icon(Icons.add),
+        onPressed: _addNoteDialog,
+        child: const Icon(Icons.edit),
       ),
     );
   }
