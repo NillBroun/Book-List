@@ -333,6 +333,7 @@ class BookListScreen extends StatefulWidget {
 
 class _BookListScreenState extends State<BookListScreen> {
   List<Book> _books = [];
+  List<Book> _trashBooks = [];
   List<Book> _filteredBooks = [];
 
   final TextEditingController _bookSearchController = TextEditingController();
@@ -352,6 +353,7 @@ class _BookListScreenState extends State<BookListScreen> {
   void initState() {
     super.initState();
     _loadBooks();
+    _loadTrash();
     _bookSearchController.addListener(_filterAndSortBooks);
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkOnboarding());
   }
@@ -428,6 +430,11 @@ class _BookListScreenState extends State<BookListScreen> {
                 _buildGuideRow(
                   '⚙️ Find in Notes (Settings)',
                   'Search for specific words or lines inside all your notes.',
+                ),
+                const SizedBox(height: 6),
+                _buildGuideRow(
+                  '🗑️ Trash Bin (Settings)',
+                  'Deleted books stay safely in trash until you choose to restore or clear them.',
                 ),
                 const SizedBox(height: 6),
                 _buildGuideRow(
@@ -513,10 +520,27 @@ class _BookListScreenState extends State<BookListScreen> {
     }
   }
 
+  Future<void> _loadTrash() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? trashString = prefs.getString('trash_books_data');
+    if (trashString != null) {
+      final List decoded = jsonDecode(trashString);
+      setState(() {
+        _trashBooks = decoded.map((item) => Book.fromMap(item)).toList();
+      });
+    }
+  }
+
   Future<void> _saveBooks() async {
     final prefs = await SharedPreferences.getInstance();
     final String encoded = jsonEncode(_books.map((b) => b.toMap()).toList());
     await prefs.setString('saved_books_data', encoded);
+  }
+
+  Future<void> _saveTrash() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String encoded = jsonEncode(_trashBooks.map((b) => b.toMap()).toList());
+    await prefs.setString('trash_books_data', encoded);
   }
 
   void _filterAndSortBooks() {
@@ -582,15 +606,15 @@ class _BookListScreenState extends State<BookListScreen> {
     );
   }
 
-  void _showDeleteBookDialog(Book book) {
+  void _moveBookToTrash(Book book) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF181B19),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Delete Book?', style: TextStyle(color: Colors.white)),
+        title: const Text('Move to Trash?', style: TextStyle(color: Colors.white)),
         content: Text(
-          '\'${book.title}\' and all of its notes will be permanently deleted.',
+          '\'${book.title}\' will be moved to the Trash Bin. You can restore it anytime.',
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -603,17 +627,55 @@ class _BookListScreenState extends State<BookListScreen> {
             onPressed: () {
               setState(() {
                 _books.removeWhere((b) => b.id == book.id);
+                _trashBooks.insert(0, book);
                 _filterAndSortBooks();
               });
               _saveBooks();
+              _saveTrash();
               Navigator.pop(ctx);
-              _showCleanSnackBar('\'${book.title}\' deleted successfully');
+              _showCleanSnackBar('\'${book.title}\' moved to Trash Bin');
             },
-            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+            child: const Text('Move to Trash', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
+  }
+
+  void _openTrashScreen() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TrashScreen(
+          trashBooks: _trashBooks,
+          onRestore: (restoredBook) {
+            setState(() {
+              _trashBooks.removeWhere((b) => b.id == restoredBook.id);
+              _books.insert(0, restoredBook);
+              _filterAndSortBooks();
+            });
+            _saveBooks();
+            _saveTrash();
+            _showCleanSnackBar('\'${restoredBook.title}\' restored to library.');
+          },
+          onDeletePermanently: (deletedBook) {
+            setState(() {
+              _trashBooks.removeWhere((b) => b.id == deletedBook.id);
+            });
+            _saveTrash();
+            _showCleanSnackBar('\'${deletedBook.title}\' permanently deleted.');
+          },
+          onEmptyTrash: () {
+            setState(() {
+              _trashBooks.clear();
+            });
+            _saveTrash();
+            _showCleanSnackBar('Trash bin cleared.');
+          },
+        ),
+      ),
+    );
+    setState(() {});
   }
 
   void _openFindInNotesDialog() {
@@ -819,7 +881,11 @@ class _BookListScreenState extends State<BookListScreen> {
               Navigator.pop(ctx);
 
               try {
-                final jsonString = jsonEncode(_books.map((b) => b.toMap()).toList());
+                final backupPayload = {
+                  'books': _books.map((b) => b.toMap()).toList(),
+                  'trash': _trashBooks.map((b) => b.toMap()).toList(),
+                };
+                final jsonString = jsonEncode(backupPayload);
                 final jsonBytes = utf8.encode(jsonString);
                 final key = _deriveKey(p1);
                 final encrypted = _xorCipher(jsonBytes, key);
@@ -926,13 +992,23 @@ class _BookListScreenState extends State<BookListScreen> {
                   final decrypted = _xorCipher(encrypted, key);
 
                   final content = utf8.decode(decrypted);
-                  final List decoded = jsonDecode(content);
+                  final dynamic decoded = jsonDecode(content);
 
                   setState(() {
-                    _books = decoded.map((item) => Book.fromMap(item)).toList();
+                    if (decoded is Map<String, dynamic> && decoded.containsKey('books')) {
+                      final List bookList = decoded['books'] ?? [];
+                      final List trashList = decoded['trash'] ?? [];
+                      _books = bookList.map((item) => Book.fromMap(item)).toList();
+                      _trashBooks = trashList.map((item) => Book.fromMap(item)).toList();
+                    } else if (decoded is List) {
+                      _books = decoded.map((item) => Book.fromMap(item)).toList();
+                      _trashBooks = [];
+                    }
                     _filterAndSortBooks();
                   });
+
                   await _saveBooks();
+                  await _saveTrash();
 
                   _showCleanSnackBar('Data restored successfully!');
                 } catch (_) {
@@ -1239,6 +1315,7 @@ class _BookListScreenState extends State<BookListScreen> {
             tooltip: 'Settings',
             onSelected: (value) {
               if (value == 'find') _openFindInNotesDialog();
+              if (value == 'trash') _openTrashScreen();
               if (value == 'settings') _openSettingsDialog();
               if (value == 'export') _exportBackupFile();
               if (value == 'import') _importBackupFile();
@@ -1253,6 +1330,16 @@ class _BookListScreenState extends State<BookListScreen> {
                     Icon(Icons.find_in_page_outlined, color: Color(0xFF00E676)),
                     SizedBox(width: 10),
                     Text('Find in Notes'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'trash',
+                child: Row(
+                  children: [
+                    const Icon(Icons.delete_sweep_outlined, color: Colors.orangeAccent),
+                    const SizedBox(width: 10),
+                    Text('Trash Bin (${_trashBooks.length})'),
                   ],
                 ),
               ),
@@ -1348,7 +1435,7 @@ class _BookListScreenState extends State<BookListScreen> {
                       _saveBooks();
                       _filterAndSortBooks();
                     },
-                    onLongPress: () => _showDeleteBookDialog(item),
+                    onLongPress: () => _moveBookToTrash(item),
                     child: Padding(
                       padding: const EdgeInsets.all(12.0),
                       child: Column(
@@ -1421,6 +1508,131 @@ class _BookListScreenState extends State<BookListScreen> {
         onPressed: () => _showAddOrEditBookDialog(),
         child: const Icon(Icons.add),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TRASH CAN / RECYCLE BIN SCREEN
+// ---------------------------------------------------------------------------
+
+class TrashScreen extends StatefulWidget {
+  final List<Book> trashBooks;
+  final Function(Book) onRestore;
+  final Function(Book) onDeletePermanently;
+  final VoidCallback onEmptyTrash;
+
+  const TrashScreen({
+    super.key,
+    required this.trashBooks,
+    required this.onRestore,
+    required this.onDeletePermanently,
+    required this.onEmptyTrash,
+  });
+
+  @override
+  State<TrashScreen> createState() => _TrashScreenState();
+}
+
+class _TrashScreenState extends State<TrashScreen> {
+  void _confirmEmptyTrash() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF181B19),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Empty Trash?', style: TextStyle(color: Colors.redAccent)),
+        content: const Text(
+          'All books and notes in the Trash Bin will be permanently deleted. This cannot be undone.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () {
+              Navigator.pop(ctx);
+              setState(() {
+                widget.onEmptyTrash();
+              });
+            },
+            child: const Text('Clear All', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Trash Bin'),
+        actions: [
+          if (widget.trashBooks.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.delete_forever, color: Colors.redAccent),
+              tooltip: 'Empty Trash',
+              onPressed: _confirmEmptyTrash,
+            ),
+        ],
+      ),
+      body: widget.trashBooks.isEmpty
+          ? const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.delete_outline, size: 50, color: Colors.grey),
+                  SizedBox(height: 10),
+                  Text('Trash is empty', style: TextStyle(color: Colors.grey, fontSize: 16)),
+                ],
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(12),
+              itemCount: widget.trashBooks.length,
+              itemBuilder: (ctx, index) {
+                final book = widget.trashBooks[index];
+                return Card(
+                  color: const Color(0xFF181B19),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: ListTile(
+                    title: Text(book.title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                    subtitle: Text(
+                      '${book.author} • ${book.notes.length} notes',
+                      style: const TextStyle(color: Colors.white60, fontSize: 12),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.restore, color: Color(0xFF00E676)),
+                          tooltip: 'Restore',
+                          onPressed: () {
+                            setState(() {
+                              widget.onRestore(book);
+                            });
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_forever, color: Colors.redAccent),
+                          tooltip: 'Delete Permanently',
+                          onPressed: () {
+                            setState(() {
+                              widget.onDeletePermanently(book);
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }
@@ -1569,7 +1781,7 @@ class _BookNotesScreenState extends State<BookNotesScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// NOTE DETAIL SCREEN
+// NOTE DETAIL SCREEN (DOUBLE TAP TO EDIT)
 // ---------------------------------------------------------------------------
 
 class NoteDetailScreen extends StatefulWidget {
@@ -1684,31 +1896,43 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(18.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.note.title,
-              style: TextStyle(fontSize: currentFontSize + 6, fontWeight: FontWeight.bold, color: const Color(0xFF00E676)),
-            ),
-            if (timeLabel.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  const Icon(Icons.access_time, size: 14, color: Colors.grey),
-                  const SizedBox(width: 4),
-                  Text('Last edited: $timeLabel', style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                ],
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onDoubleTap: _editNote,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(18.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.note.title,
+                style: TextStyle(fontSize: currentFontSize + 6, fontWeight: FontWeight.bold, color: const Color(0xFF00E676)),
+              ),
+              if (timeLabel.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(Icons.access_time, size: 14, color: Colors.grey),
+                    const SizedBox(width: 4),
+                    Text('Last edited: $timeLabel', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 16),
+              Text(
+                widget.note.content.isEmpty ? 'No text in this note.' : widget.note.content,
+                style: TextStyle(fontSize: currentFontSize, height: 1.6, color: const Color(0xFFE0E0E0)),
+              ),
+              const SizedBox(height: 40),
+              Center(
+                child: Text(
+                  '💡 Double-tap anywhere on screen to edit',
+                  style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 12, fontStyle: FontStyle.italic),
+                ),
               ),
             ],
-            const SizedBox(height: 16),
-            Text(
-              widget.note.content.isEmpty ? 'No text in this note.' : widget.note.content,
-              style: TextStyle(fontSize: currentFontSize, height: 1.6, color: const Color(0xFFE0E0E0)),
-            ),
-          ],
+          ),
         ),
       ),
     );
